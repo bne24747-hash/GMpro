@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Core
+name: Compile GMpro Deauther No-OLED
 
 on: [push, workflow_dispatch]
 
@@ -14,28 +14,25 @@ jobs:
 
       - name: Install Spacehuhn Deauther Core
         run: |
-          # Menggunakan core khusus dari Spacehuhn yang sudah open-gate untuk packet injection
+          # Menggunakan SDK khusus agar fitur Deauth/Packet Injection aktif
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Required Libraries
+      - name: Install Essential Libraries
         run: |
-          # ArduinoJson 5.x wajib untuk Deauther v2
+          # Hanya install library inti tanpa library display/OLED
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson@5.13.5"
-          # Library OLED untuk Wemos 0.66"
-          arduino-cli lib install "ESP8266 and ESP32 OLED driver for SSD1306 displays"
 
-      - name: Compile GMpro (Deauther Optimized)
+      - name: Compile GMpro Firmware
         run: |
-          # FQBN diarahkan ke deauther:esp8266:generic
-          # Konfigurasi flash dicolok ke 4MB dengan 2MB SPIFFS (FS) agar Web UI muat
+          # Compile tanpa fitur display
+          # Menggunakan FQBN Deauther Core agar serangan ke SSID GMpro2 berfungsi
           arduino-cli compile --fqbn deauther:esp8266:generic:xtal=80,vtables=flash,exception=disabled,stacksmash=disabled,ssl=all,mmu=32,non32xfer=fast,eesz=4M2M,ip=lm2f,dbg=Disabled,lvl=None__,wipe=none,baud=115200 \
-          --build-property "build.flash_mode=dout" \
-          GMpro.ino --output-dir ./build
+          ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Deauther-Binary
+          name: GMpro-NoOLED-Binary
           path: ./build/*.bin
