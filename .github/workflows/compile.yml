@@ -1,4 +1,4 @@
-name: Compile GMpro Ultimate Bypass
+name: Compile SDK 2.0.0 Legacy
 on: [push]
 
 jobs:
@@ -11,40 +11,26 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install SDK 2.7.4
+      - name: Install SDK 2.0.0
         run: |
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@2.0.0 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
-      - name: Hack SDK Header (Unlock Deauth)
-        run: |
-          # Cari lokasi file user_interface.h dan ESP8266WiFi.h di server GitHub
-          WIFI_H=$(find /home/runner/.arduino15/ -name "ESP8266WiFi.h")
-          USER_INT_H=$(find /home/runner/.arduino15/ -name "user_interface.h")
-          
-          # Paksa masukkan definisi Packet Freedom langsung ke file sistem
-          sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $WIFI_H
-          sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $USER_INT_H
-          
-          echo "SDK Patched for Deauth!"
-
-      - name: Prepare Library
+      - name: Install Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          # Ekstrak library modifikasi lu
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
 
-      - name: Compile GMpro (Low Memory Mode)
+      - name: Compile GMpro
         run: |
+          # SDK 2.0.0 gak butuh flag macem-macem, dia udah 'telanjang' dari sananya
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
-          --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
-          --build-property "build.lwip_variant=v2_lower" \
           --build-property "build.flash_mode=dout" \
           GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Ultimate-Deauth
+          name: GMpro-200-LEGACY
           path: ./build/*.bin
