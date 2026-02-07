@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Fixed
+name: Compile GMpro Deauther Fixed Library
 
 on: [push, workflow_dispatch]
 
@@ -17,20 +17,30 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Libraries
+      - name: Install Library from Repo Zip
         run: |
+          # Membuat folder library manual
+          mkdir -p /home/runner/Arduino/libraries
+          
+          # Mengambil library SimpleCLI
           arduino-cli lib install "SimpleCLI"
-          arduino-cli lib install "ArduinoJson@5.13.5"
+          
+          # Unzip ArduinoJson versi spesifik yang ada di repo kamu
+          # Pastikan nama file zip di repo kamu benar-benar "ArduinoJson-5.13.5.zip"
+          unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
+          
+          # List library untuk memastikan file ada
+          ls -R /home/runner/Arduino/libraries/
 
       - name: Compile GMpro Firmware
         run: |
-          # FQBN dibuat sangat simpel untuk menghindari 'invalid option'
-          # Hanya menentukan board dan ukuran flash
+          # Menggunakan FQBN paling stabil untuk SDK Deauther
+          # Menghapus vtables dan mmu untuk menghindari 'invalid option'
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Binary-Fixed
+          name: GMpro-Deauther-Binary
           path: ./build/*.bin
