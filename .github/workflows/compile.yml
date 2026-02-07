@@ -18,14 +18,14 @@ jobs:
 
       - name: Install Libraries
         run: |
-          # Menginstall SimpleCLI
           arduino-cli lib install "SimpleCLI"
-          # Menginstall ArduinoJson versi 5 (PENTING!)
           arduino-cli lib install "ArduinoJson"@5.13.5
+          # SCRIPT CURANG: Membuat duplikat agar GitHub menemukan file .5.13.h
+          LIB_PATH=$(arduino-cli lib details ArduinoJson --format json | jq -r '.location')
+          cp "$LIB_PATH/src/ArduinoJson.h" "$LIB_PATH/src/ArduinoJson.5.13.h"
 
       - name: Compile Project
         run: |
-          # Compile menggunakan core 2.7.4 agar fungsi deauth tetap jalan
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 GMpro.ino --output-dir ./build
 
       - name: Upload Binary
