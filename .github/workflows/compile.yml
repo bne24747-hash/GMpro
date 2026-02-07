@@ -18,12 +18,14 @@ jobs:
 
       - name: Install Libraries
         run: |
+          # Menginstall SimpleCLI
           arduino-cli lib install "SimpleCLI"
-          # Tambahkan library lain jika diperlukan
+          # Menginstall ArduinoJson versi 5 (PENTING!)
+          arduino-cli lib install "ArduinoJson"@5.13.5
 
       - name: Compile Project
         run: |
-          # Menggunakan core 2.7.4 agar support deauth packet
+          # Compile menggunakan core 2.7.4 agar fungsi deauth tetap jalan
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 GMpro.ino --output-dir ./build
 
       - name: Upload Binary
