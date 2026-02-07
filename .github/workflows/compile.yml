@@ -1,4 +1,4 @@
-name: Compile GMpro Official SDK
+name: Compile GMpro Ultimate Fix
 on: [push]
 
 jobs:
@@ -11,28 +11,31 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install Deauther Core
+      - name: Install ESP8266 SDK
         run: |
-          # SESUAI INSTRUKSI: Pake URL board manager khusus deauther
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino-esp8266-deauther/master/package_esp8266_deauther_index.json
-          arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino-esp8266-deauther/master/package_esp8266_deauther_index.json
+          # Pake link resmi yang udah pasti jalan (bukan yang 404)
+          arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@2.7.4
 
-      - name: Prepare Modified Library
+      - name: Prepare Local Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          # Pakai library MODIFIKASI dari zip lu (sesuai poin 3 di gambar)
+          # Ekstrak library modifikasi dari zip lu (Penting sesuai instruksi resminya)
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
           LIB_SRC=$(find /home/runner/Arduino/libraries/ -name "src" -type d | head -n 1)
           echo '#include "ArduinoJson.h"' > "$LIB_SRC/ArduinoJson.5.13.h"
 
       - name: Compile GMpro
         run: |
-          # SESUAI POIN 4: Pakai FQBN deauther:esp8266:nodemcu
-          arduino-cli compile --fqbn deauther:esp8266:nodemcu GMpro.ino --output-dir ./build
+          # KUNCINYA: Kita pake board generic supaya settingan wifi_send_pkt_freedom kebuka semua
+          arduino-cli compile --fqbn esp8266:esp8266:generic \
+          --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
+          --build-property "build.lwip_variant=v2_lower" \
+          GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Official-SDK-Binary
+          name: GMpro-Real-Fix
           path: ./build/*.bin
