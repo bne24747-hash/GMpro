@@ -1,4 +1,4 @@
-name: Compile GMpro Final
+name: Compile GMpro Original Match
 on: [push]
 
 jobs:
@@ -13,28 +13,34 @@ jobs:
 
       - name: Install SDK
         run: |
-          # Pake link stabil dan langsung install versinya
+          # Pakai link stabil untuk ambil SDK 2.7.4
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
           arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
-      - name: Prepare Local Library
+      - name: Prepare Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          # Ekstrak library modifikasi sesuai instruksi resmi
+          # Ekstrak library modifikasi dari ZIP lu
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
+          # Fix agar include library-nya terbaca dengan benar
           LIB_SRC=$(find /home/runner/Arduino/libraries/ -name "src" -type d | head -n 1)
           echo '#include "ArduinoJson.h"' > "$LIB_SRC/ArduinoJson.5.13.h"
 
-      - name: Compile GMpro
+      - name: Compile GMpro (Original PC Settings)
         run: |
-          # Pake board nodemcuv2 tapi dengan flag 'Freedom' biar bisa deauth
+          # KUNCINYA DI SINI:
+          # 1. External Wifi Packet Freedom (Biar Deauth Jalan)
+          # 2. lwIP v2 Lower Memory (Settingan wajib deauther agar RAM lega)
+          # 3. SSL None (Hemat RAM agar tidak crash saat nyerang)
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
           --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
+          --build-property "build.lwip_variant=v2_lower" \
+          --build-property "build.ssl=none" \
           GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Success-Bin
+          name: GMpro-Original-Match
           path: ./build/*.bin
