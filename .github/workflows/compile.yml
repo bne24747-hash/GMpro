@@ -1,4 +1,4 @@
-name: Compile GMpro Final Fix
+name: Compile GMpro Official SDK
 on: [push]
 
 jobs:
@@ -11,32 +11,28 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install ESP8266 SDK
+      - name: Install Deauther Core
         run: |
-          # Update index dengan link yang paling stabil
-          arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          # Paksa install versi 2.7.4 dengan menyertakan URL-nya lagi
-          arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          # SESUAI INSTRUKSI: Pake URL board manager khusus deauther
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino-esp8266-deauther/master/package_esp8266_deauther_index.json
+          arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino-esp8266-deauther/master/package_esp8266_deauther_index.json
 
-      - name: Prepare Local Library
+      - name: Prepare Modified Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          # Ekstrak library asli lu dari file zip di repo
+          # Pakai library MODIFIKASI dari zip lu (sesuai poin 3 di gambar)
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
-          # Script buat mastiin file .5.13.h ada di tempat yang bener
           LIB_SRC=$(find /home/runner/Arduino/libraries/ -name "src" -type d | head -n 1)
           echo '#include "ArduinoJson.h"' > "$LIB_SRC/ArduinoJson.5.13.h"
 
       - name: Compile GMpro
         run: |
-          # Tambahan flag buat buka kunci deauth (Packet Freedom)
-          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
-          --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
-          GMpro.ino --output-dir ./build
+          # SESUAI POIN 4: Pakai FQBN deauther:esp8266:nodemcu
+          arduino-cli compile --fqbn deauther:esp8266:nodemcu GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Deauth-Final
+          name: GMpro-Official-SDK-Binary
           path: ./build/*.bin
