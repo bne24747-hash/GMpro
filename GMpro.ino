@@ -346,7 +346,7 @@ void setup() {
     delay(2000);
     Serial.println("Configure setting");
     wifi_set_opmode(STATIONAP_MODE);
-    WiFi.softAP("WiFiX","12345678");
+    WiFi.softAP("Vivo1904","Sangkur87");
     IPAddress myIP = WiFi.softAPIP();
     Serial.print("AP IP address: ");
     Serial.println(myIP);
