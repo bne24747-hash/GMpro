@@ -17,25 +17,24 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Library from Repo Zip
+      - name: Install Libraries (JSON & OLED)
         run: |
-          # Membuat folder library manual
           mkdir -p /home/runner/Arduino/libraries
           
-          # Mengambil library SimpleCLI
+          # Install Library Standar untuk OLED dan GFX
+          arduino-cli lib install "Adafruit SSD1306"
+          arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "SimpleCLI"
           
-          # Unzip ArduinoJson versi spesifik yang ada di repo kamu
-          # Pastikan nama file zip di repo kamu benar-benar "ArduinoJson-5.13.5.zip"
+          # Unzip ArduinoJson 5.13.5 dari repo kamu
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
           
-          # List library untuk memastikan file ada
+          # Verifikasi list library
           ls -R /home/runner/Arduino/libraries/
 
       - name: Compile GMpro Firmware
         run: |
-          # Menggunakan FQBN paling stabil untuk SDK Deauther
-          # Menghapus vtables dan mmu untuk menghindari 'invalid option'
+          # Menggunakan FQBN stabil untuk SDK Deauther
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           ./GMpro.ino --output-dir ./build
 
