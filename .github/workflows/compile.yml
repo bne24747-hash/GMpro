@@ -1,4 +1,4 @@
-name: Compile GMpro Fix Deauth
+name: Compile GMpro Force Deauth
 on: [push]
 
 jobs:
@@ -11,25 +11,27 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install Deauther Core
+      - name: Install ESP8266 SDK
         run: |
-          # Menggunakan URL Board Manager khusus Deauther agar fungsi paket bebas aktif
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino-esp8266-deauther/master/package_esp8266_deauther_index.json
-          arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino-esp8266-deauther/master/package_esp8266_deauther_index.json
+          arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
       - name: Install Libraries
         run: |
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson"@5.13.5
+          mkdir -p /home/runner/Arduino/libraries/ArduinoJson/src/
           echo '#include "ArduinoJson.h"' > /home/runner/Arduino/libraries/ArduinoJson/src/ArduinoJson.5.13.h
 
-      - name: Compile Project
+      - name: Compile GMpro
         run: |
-          # Menggunakan board 'deauther' yang sudah di-patch agar deauth lancar
-          arduino-cli compile --fqbn deauther:esp8266:nodemcuv2 GMpro.ino --output-dir ./build
+          # Perhatikan bagian --build-property, ini buat maksa SDK buka ijin kirim paket mentah
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
+          --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
+          GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Real-Deauth-Binary
+          name: GMpro-Force-Deauth
           path: ./build/*.bin
