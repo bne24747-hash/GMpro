@@ -1,4 +1,4 @@
-name: Compile GMpro Original Match
+name: Compile GMpro Ultimate Bypass
 on: [push]
 
 jobs:
@@ -11,36 +11,40 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install SDK
+      - name: Install SDK 2.7.4
         run: |
-          # Pakai link stabil untuk ambil SDK 2.7.4
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
           arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+
+      - name: Hack SDK Header (Unlock Deauth)
+        run: |
+          # Cari lokasi file user_interface.h dan ESP8266WiFi.h di server GitHub
+          WIFI_H=$(find /home/runner/.arduino15/ -name "ESP8266WiFi.h")
+          USER_INT_H=$(find /home/runner/.arduino15/ -name "user_interface.h")
+          
+          # Paksa masukkan definisi Packet Freedom langsung ke file sistem
+          sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $WIFI_H
+          sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $USER_INT_H
+          
+          echo "SDK Patched for Deauth!"
 
       - name: Prepare Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          # Ekstrak library modifikasi dari ZIP lu
+          # Ekstrak library modifikasi lu
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
-          # Fix agar include library-nya terbaca dengan benar
-          LIB_SRC=$(find /home/runner/Arduino/libraries/ -name "src" -type d | head -n 1)
-          echo '#include "ArduinoJson.h"' > "$LIB_SRC/ArduinoJson.5.13.h"
 
-      - name: Compile GMpro (Original PC Settings)
+      - name: Compile GMpro (Low Memory Mode)
         run: |
-          # KUNCINYA DI SINI:
-          # 1. External Wifi Packet Freedom (Biar Deauth Jalan)
-          # 2. lwIP v2 Lower Memory (Settingan wajib deauther agar RAM lega)
-          # 3. SSL None (Hemat RAM agar tidak crash saat nyerang)
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
           --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
           --build-property "build.lwip_variant=v2_lower" \
-          --build-property "build.ssl=none" \
+          --build-property "build.flash_mode=dout" \
           GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Original-Match
+          name: GMpro-Ultimate-Deauth
           path: ./build/*.bin
