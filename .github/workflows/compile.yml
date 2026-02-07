@@ -1,0 +1,32 @@
+name: Compile ESP8266 Project
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install ESP8266 Platform
+        run: |
+          arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+
+      - name: Install Libraries
+        run: |
+          # Menginstall SimpleCLI dan library lain yang dibutuhkan
+          arduino-cli lib install "SimpleCLI"
+
+      - name: Compile Project
+        run: |
+          arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 GMpro.ino --output-dir ./build
+
+      - name: Upload Binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: ESP8266-Binary
+          path: ./build/*.bin
