@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther
+name: Compile GMpro Deauther Fixed
 
 on: [push, workflow_dispatch]
 
@@ -14,25 +14,23 @@ jobs:
 
       - name: Install Spacehuhn Deauther SDK
         run: |
-          # SDK ini wajib agar fungsi Deauth bekerja
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
       - name: Install Libraries
         run: |
-          # Library inti untuk Deauther
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson@5.13.5"
 
       - name: Compile GMpro Firmware
         run: |
-          # FQBN diringkas agar tidak error 'invalid option mmu'
-          # eesz=4M2M diset agar Web UI bisa menyimpan target (SSID GMpro2)
-          arduino-cli compile --fqbn deauther:esp8266:generic:xtal=80,vtables=flash,eesz=4M2M \
+          # FQBN dibuat sangat simpel untuk menghindari 'invalid option'
+          # Hanya menentukan board dan ukuran flash
+          arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Deauther-Working
+          name: GMpro-Binary-Fixed
           path: ./build/*.bin
