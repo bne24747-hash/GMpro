@@ -1,4 +1,4 @@
-name: Compile GMpro Force Deauth
+name: Compile GMpro Real Match
 on: [push]
 
 jobs:
@@ -14,18 +14,21 @@ jobs:
       - name: Install ESP8266 SDK
         run: |
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@2.7.4
 
-      - name: Install Libraries
+      - name: Prepare Local Library
         run: |
+          mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          arduino-cli lib install "ArduinoJson"@5.13.5
-          mkdir -p /home/runner/Arduino/libraries/ArduinoJson/src/
-          echo '#include "ArduinoJson.h"' > /home/runner/Arduino/libraries/ArduinoJson/src/ArduinoJson.5.13.h
+          # Ekstrak zip library asli dari repo lu
+          unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
+          # Paksa sistem buat ngenalin nama file ArduinoJson.5.13.h
+          LIB_DIR=$(find /home/runner/Arduino/libraries/ -name "src" -type d)
+          echo '#include "ArduinoJson.h"' > "$LIB_DIR/ArduinoJson.5.13.h"
 
       - name: Compile GMpro
         run: |
-          # Perhatikan bagian --build-property, ini buat maksa SDK buka ijin kirim paket mentah
+          # INI KUNCINYA: Build property buat buka ijin paket deauth
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
           --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
           GMpro.ino --output-dir ./build
@@ -33,5 +36,5 @@ jobs:
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Force-Deauth
+          name: GMpro-Real-Deauth
           path: ./build/*.bin
