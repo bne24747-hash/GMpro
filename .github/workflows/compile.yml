@@ -1,4 +1,4 @@
-name: Compile GMpro SDK 2.4.2
+name: Compile GMpro Deauther Core
 on: [push]
 
 jobs:
@@ -11,25 +11,32 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install SDK 2.4.2
+      - name: Install ESP8266 Core 2.7.4
         run: |
+          # Pake link resmi yang stabil
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core install esp8266:esp8266@2.4.2 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
-      - name: Inject Freedom (SDK 2.4.2)
+      - name: Patch SDK to Deauther Mode
         run: |
-          # Cari file ESP8266WiFi.h dan paksa injeksi flag di level sistem
+          # Ini triknya biar SDK biasa jadi SDK Deauther
           WIFI_H=$(find /home/runner/.arduino15/ -name "ESP8266WiFi.h")
+          USER_INT_H=$(find /home/runner/.arduino15/ -name "user_interface.h")
+          
+          # Paksa buka gerbang Packet Freedom
           sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $WIFI_H
-          echo "Freedom Unlocked!"
+          sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $USER_INT_H
+          
+          echo "SDK successfully patched to Deauther Core!"
 
       - name: Prepare Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
+          # Pastikan file ini ada di repo lu
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
 
-      - name: Compile GMpro
+      - name: Compile GMpro (Deauther Optimized)
         run: |
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
           --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
@@ -40,5 +47,5 @@ jobs:
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-SDK242-Deauth-Stable
+          name: GMpro-Deauther-Binary
           path: ./build/*.bin
