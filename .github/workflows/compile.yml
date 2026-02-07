@@ -1,4 +1,4 @@
-name: Compile GMpro Real Match
+name: Compile GMpro Final Fix
 on: [push]
 
 jobs:
@@ -13,22 +13,24 @@ jobs:
 
       - name: Install ESP8266 SDK
         run: |
+          # Update index dengan link yang paling stabil
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core install esp8266:esp8266@2.7.4
+          # Paksa install versi 2.7.4 dengan menyertakan URL-nya lagi
+          arduino-cli core install esp8266:esp8266@2.7.4 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
       - name: Prepare Local Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
-          # Ekstrak zip library asli dari repo lu
+          # Ekstrak library asli lu dari file zip di repo
           unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
-          # Paksa sistem buat ngenalin nama file ArduinoJson.5.13.h
-          LIB_DIR=$(find /home/runner/Arduino/libraries/ -name "src" -type d)
-          echo '#include "ArduinoJson.h"' > "$LIB_DIR/ArduinoJson.5.13.h"
+          # Script buat mastiin file .5.13.h ada di tempat yang bener
+          LIB_SRC=$(find /home/runner/Arduino/libraries/ -name "src" -type d | head -n 1)
+          echo '#include "ArduinoJson.h"' > "$LIB_SRC/ArduinoJson.5.13.h"
 
       - name: Compile GMpro
         run: |
-          # INI KUNCINYA: Build property buat buka ijin paket deauth
+          # Tambahan flag buat buka kunci deauth (Packet Freedom)
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
           --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
           GMpro.ino --output-dir ./build
@@ -36,5 +38,5 @@ jobs:
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Real-Deauth
+          name: GMpro-Deauth-Final
           path: ./build/*.bin
