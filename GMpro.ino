@@ -2,7 +2,7 @@
 #include <DNSServer.h>
 #include <SimpleCLI.h>
 //#include "mac.h"
-#include "LittleFS.h"
+#include "FS.h"
 #include "web.h"
 #include "beacon.h"
 #include "sniffer.h"
