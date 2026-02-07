@@ -1,4 +1,4 @@
-name: Compile SDK 2.0.0 Legacy
+name: Compile GMpro SDK 2.4.2
 on: [push]
 
 jobs:
@@ -11,12 +11,19 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install SDK 2.0.0
+      - name: Install SDK 2.4.2
         run: |
           arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core install esp8266:esp8266@2.0.0 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266@2.4.2 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
-      - name: Install Library
+      - name: Inject Freedom (SDK 2.4.2)
+        run: |
+          # Cari file ESP8266WiFi.h dan paksa injeksi flag di level sistem
+          WIFI_H=$(find /home/runner/.arduino15/ -name "ESP8266WiFi.h")
+          sed -i '1i #define EXTERNAL_WIFI_PACKET_FREEDOM' $WIFI_H
+          echo "Freedom Unlocked!"
+
+      - name: Prepare Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
           arduino-cli lib install "SimpleCLI"
@@ -24,13 +31,14 @@ jobs:
 
       - name: Compile GMpro
         run: |
-          # SDK 2.0.0 gak butuh flag macem-macem, dia udah 'telanjang' dari sananya
           arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 \
+          --build-property "compiler.cpp.extra_flags=-DEXTERNAL_WIFI_PACKET_FREEDOM" \
+          --build-property "build.lwip_variant=v2_lower" \
           --build-property "build.flash_mode=dout" \
           GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-200-LEGACY
+          name: GMpro-SDK242-Deauth-Stable
           path: ./build/*.bin
