@@ -1,58 +1,62 @@
-#ifndef WEB_H
-#define WEB_H
-
-static const char Head[] PROGMEM = R"=====(<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
+const char INDEX_HTML[] PROGMEM = R"=====(
+<!DOCTYPE html>
+<html>
+<head>
 <style>
-body{background:#000;color:#fff;font-family:monospace;margin:0;text-align:center}
-.header{border-bottom:2px solid #f00;padding:20px;box-shadow:0 0 15px #f00}
-.logo{color:#f00;font-size:2.5rem;font-weight:700;text-shadow:0 0 10px #f00;letter-spacing:5px}
-.tabs{display:flex;background:#222}
-.tab{flex:1;padding:15px;cursor:pointer;font-weight:700;border-bottom:3px solid #333}
-.tab.active{background:#111;border-bottom:4px solid #f00;color:#f00}
-.tab.set{color:#0f0}
-.content{padding:15px;display:none}
-.active-c{display:block}
-.card{background:#111;border:1px solid #333;padding:15px;margin-top:10px;border-radius:5px;text-align:left}
-.card-t{color:#f00;font-size:12px;margin-bottom:10px;border-left:4px solid #f00;padding-left:10px;text-transform:uppercase}
-table{width:100%;font-size:11px;border-collapse:collapse}
-th,td{border:1px solid #222;padding:8px}
-th{color:#0f0}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
-button{background:#000;border:1px solid #0f0;color:#0f0;padding:15px;font-weight:700;border-radius:5px;cursor:pointer}
-button.active{background:#f00!important;color:#fff!important;border-color:#fff!important;box-shadow:0 0 15px #f00}
-</style></head><body>
-<div class='header'><div class='logo'>GMpro87</div></div>
-<div class='tabs'>
-<div class='tab active' onclick="openT(event,'T1')">COMBAT</div>
-<div class='tab set' onclick="openT(event,'T2')">SETTING</div>
-</div>
-<div id='T1' class='content active-c'>)=====";
+  body { background:#000; color:#0f0; font-family:monospace; padding:10px; }
+  .tab { display:none; border:1px solid #0f0; padding:10px; margin-top:5px; }
+  .active { display:block; }
+  .t-btn { padding:10px; background:#111; border:1px solid #0f0; color:#0f0; cursor:pointer; }
+  .t-btn.sel { background:#0f0; color:#000; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; }
+  th, td { border:1px solid #444; padding:5px; text-align:center; }
+  .rusuh { border-color:red; color:red; }
+</style>
+</head>
+<body>
+  <div style="display:flex; gap:5px;">
+    <button class="t-btn sel" id="b1" onclick="st(1)">TAB 1: ATTACK</button>
+    <button class="t-btn" id="b2" onclick="st(2)">TAB 2: SETTINGS</button>
+  </div>
 
-static const char Mid[] PROGMEM = R"=====(</div><div id='T2' class='content'>)=====";
+  <div id="p1" class="tab active">
+    <button class="t-btn" onclick="cmd('scan')">SCAN WIFI</button>
+    <table>
+      <thead><tr><th>SSID</th><th>CH</th><th>USR</th><th>SIG%</th><th>SELECT</th></tr></thead>
+      <tbody id="l"></tbody>
+    </table>
+    <button class="t-btn" onclick="cmd('deauth')">DEAUTH</button>
+    <button class="t-btn" onclick="cmd('etwin')">EVIL TWIN</button>
+    <button class="t-btn" onclick="cmd('beacon')">BEACON SPAM</button>
+    <button class="t-btn rusuh" onclick="cmd('rusuh')">MASS DEAUTH RUSUH</button>
+    <textarea id="log" style="width:100%; height:100px; background:#111; color:#0f0; margin-top:10px;" readonly></textarea>
+  </div>
 
-static const char Foot[] PROGMEM = R"=====(</div>
+  <div id="p2" class="tab">
+    SSID: <input type="text" id="ss" value="GMpro2"><br>
+    HIDDEN ADMIN: <select id="ha"><option value="0">OFF</option><option value="1">ON</option></select><br>
+    MAX SIGNAL: 20.5 dBm (Fixed)<br><hr>
+    FILE: <select id="sl"><option>etwin1.html</option><option>etwin2.html</option><option>etwin3.html</option><option>etwin4.html</option><option>etwin5.html</option></select>
+    <input type="file" id="fi"><button onclick="up()">UPLOAD</button><br>
+    <textarea id="pt" placeholder="pass.txt content..."></textarea>
+  </div>
+
 <script>
-function openT(e,n){
-var i,c,t;
-c=document.getElementsByClassName("content");for(i=0;i<c.length;i++)c[i].style.display="none";
-t=document.getElementsByClassName("tab");for(i=0;i<t.length;i++)t[i].className=t[i].className.replace(" active","");
-document.getElementById(n).style.display="block";e.currentTarget.className+=" active";
-}
-function tgl(btn,u){
-fetch(u).then(r=>r.text()).then(d=>{
-if(d.includes("ON"))btn.classList.add("active");
-else btn.classList.remove("active");
-});
-}
-function scn(){
-fetch('/get_scan').then(r=>r.json()).then(data=>{
-let b=document.getElementById('sc');b.innerHTML='';
-data.forEach(w=>{
-b.innerHTML+=`<tr><td>${w.s}</td><td>${w.c}</td><td>0</td><td>${w.r}%</td><td><input type='checkbox' onclick='fetch("/sel?m="+${w.m})'></td></tr>`;
-});
-});
-}
-setInterval(scn,5000);
-</script></body></html>)=====";
-
-#endif
+  function st(n){
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.t-btn').forEach(x=>x.classList.remove('sel'));
+    document.getElementById('p'+n).classList.add('active');
+    document.getElementById('b'+n).classList.add('sel');
+  }
+  function cmd(a){
+    fetch('/api?do='+a).then(r=>r.text()).then(t=>{document.getElementById('log').value += "> "+t+"\n";});
+  }
+  function up(){
+    let f = document.getElementById('fi').files[0];
+    let d = new FormData(); d.append("file", f, document.getElementById('sl').value);
+    fetch('/upload',{method:"POST",body:d}).then(()=>alert("Uploaded!"));
+  }
+</script>
+</body>
+</html>
+)=====";
