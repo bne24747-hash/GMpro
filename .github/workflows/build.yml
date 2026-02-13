@@ -10,37 +10,36 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v2 # Update ke v2 lebih stabil
+        uses: arduino/setup-arduino-cli@v2 # Versi v2 lebih stabil
 
       - name: Install Spacehuhn Deauther SDK
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Library OLED & Json
+      - name: Install Libraries
         run: |
-          # Ambil path library secara otomatis (Biar gak kena Permission Denied)
-          LIB_PATH=$(arduino-cli config dump | grep 'user:' | awk '{print $2}')/libraries
-          mkdir -p "$LIB_PATH"
-
-          # Install Library buat Hardware OLED
+          # Install library yang dibutuhin OLED
           arduino-cli lib install "Adafruit SSD1306"
           arduino-cli lib install "Adafruit GFX Library"
-          arduino-cli lib install "Adafruit BusIO"
-          arduino-cli lib install "SimpleCLI"
+          arduino-cli lib install "Adafruit BusIO" # WAJIB ada buat Adafruit library terbaru
           
-          # Cek file zip ArduinoJson di repo lu
+          # Jika lu punya ArduinoJson zip di repo, pindahin ke folder libraries internal cli
+          LIB_PATH=$(arduino-cli config dump | grep directories.user | cut -d ' ' -f 2)/libraries
+          mkdir -p $LIB_PATH
+          
           if [ -f "ArduinoJson-5.13.5.zip" ]; then
-            unzip -o ArduinoJson-5.13.5.zip -d "$LIB_PATH"
+            unzip -o ArduinoJson-5.13.5.zip -d $LIB_PATH/
           else
-            # Kalau zip gak ada, install otomatis versi 5 (karena kodingan lu pake v5)
+            # Kalau zip gak ada di repo, install manual versi 5 (karena kode lu pake versi 5)
             arduino-cli lib install "ArduinoJson"@5.13.5
           fi
 
       - name: Compile GMpro Firmware
         run: |
-          # Pastikan file kodingan lu di repo namanya GMpro.ino
+          # Pastikan nama file .ino lu adalah GMpro.ino
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
+          --libraries $(arduino-cli config dump | grep directories.user | cut -d ' ' -f 2)/libraries \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
