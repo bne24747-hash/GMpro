@@ -10,32 +10,36 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
+        uses: arduino/setup-arduino-cli@v2
 
       - name: Install Spacehuhn Deauther SDK
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Library from Repo Zip
+      - name: Install Libraries
         run: |
-          # Membuat folder library manual di folder runner
-          mkdir -p /home/runner/Arduino/libraries
-          
-          # Mengambil library SimpleCLI
+          # 1. Install Library OLED & CLI (Otomatis masuk folder yang bener)
+          arduino-cli lib install "Adafruit SSD1306"
+          arduino-cli lib install "Adafruit GFX Library"
+          arduino-cli lib install "Adafruit BusIO"
           arduino-cli lib install "SimpleCLI"
           
-          # Unzip ArduinoJson versi spesifik yang ada di repo kamu
-          # Pastikan file "ArduinoJson-5.13.5.zip" ada di root folder repo lu
-          unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
+          # 2. Setup path library untuk ArduinoJson manual (Biar gak Permission Denied)
+          USER_DIR=$(arduino-cli config dump | grep 'user:' | awk '{print $2}')
+          LIB_PATH="$USER_DIR/libraries"
+          mkdir -p "$LIB_PATH"
           
-          # List library untuk memastikan file sudah masuk sebelum compile
-          ls -R /home/runner/Arduino/libraries/
+          # 3. Handle ArduinoJson (v5 wajib buat kodingan lu)
+          if [ -f "ArduinoJson-5.13.5.zip" ]; then
+            unzip -o ArduinoJson-5.13.5.zip -d "$LIB_PATH"
+          else
+            arduino-cli lib install "ArduinoJson"@5.13.5
+          fi
 
       - name: Compile GMpro Firmware
         run: |
-          # Menggunakan FQBN generic untuk ESP8266 Deauther
-          # Memastikan file target adalah GMpro.ino
+          # Compile menggunakan FQBN generic ESP8266
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           ./GMpro.ino --output-dir ./build
 
