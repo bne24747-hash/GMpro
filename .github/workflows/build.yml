@@ -10,7 +10,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v2 # Versi v2 lebih stabil
+        uses: arduino/setup-arduino-cli@v2
 
       - name: Install Spacehuhn Deauther SDK
         run: |
@@ -19,27 +19,25 @@ jobs:
 
       - name: Install Libraries
         run: |
-          # Install library yang dibutuhin OLED
+          # Install library OLED & pendukungnya secara otomatis
           arduino-cli lib install "Adafruit SSD1306"
           arduino-cli lib install "Adafruit GFX Library"
-          arduino-cli lib install "Adafruit BusIO" # WAJIB ada buat Adafruit library terbaru
+          arduino-cli lib install "Adafruit BusIO"
           
-          # Jika lu punya ArduinoJson zip di repo, pindahin ke folder libraries internal cli
+          # Ambil path folder library secara dinamis dari config
           LIB_PATH=$(arduino-cli config dump | grep directories.user | cut -d ' ' -f 2)/libraries
-          mkdir -p $LIB_PATH
           
+          # Cek file zip ArduinoJson atau install manual versi 5.13.5
           if [ -f "ArduinoJson-5.13.5.zip" ]; then
             unzip -o ArduinoJson-5.13.5.zip -d $LIB_PATH/
           else
-            # Kalau zip gak ada di repo, install manual versi 5 (karena kode lu pake versi 5)
             arduino-cli lib install "ArduinoJson"@5.13.5
           fi
 
       - name: Compile GMpro Firmware
         run: |
-          # Pastikan nama file .ino lu adalah GMpro.ino
+          # Pastikan nama file adalah GMpro.ino di dalam repositori kamu
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
-          --libraries $(arduino-cli config dump | grep directories.user | cut -d ' ' -f 2)/libraries \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
