@@ -19,24 +19,27 @@ jobs:
 
       - name: Install Libraries
         run: |
-          # Install library OLED & pendukungnya secara otomatis
+          # 1. Install library OLED standar (Otomatis bikin folder library yang bener)
           arduino-cli lib install "Adafruit SSD1306"
           arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "Adafruit BusIO"
           
-          # Ambil path folder library secara dinamis dari config
-          LIB_PATH=$(arduino-cli config dump | grep directories.user | cut -d ' ' -f 2)/libraries
-          
-          # Cek file zip ArduinoJson atau install manual versi 5.13.5
+          # 2. Ambil path USER directory secara otomatis dari config CLI
+          # Ini biar nggak nembak ke '/' yang bikin Permission Denied
+          USER_DIR=$(arduino-cli config dump | grep 'user:' | awk '{print $2}')
+          LIB_PATH="$USER_DIR/libraries"
+          mkdir -p "$LIB_PATH"
+
+          # 3. Install ArduinoJson v5.13.5 (Wajib versi 5 untuk kodingan lu)
           if [ -f "ArduinoJson-5.13.5.zip" ]; then
-            unzip -o ArduinoJson-5.13.5.zip -d $LIB_PATH/
+            unzip -o ArduinoJson-5.13.5.zip -d "$LIB_PATH"
           else
             arduino-cli lib install "ArduinoJson"@5.13.5
           fi
 
       - name: Compile GMpro Firmware
         run: |
-          # Pastikan nama file adalah GMpro.ino di dalam repositori kamu
+          # Compile menggunakan FQBN generic ESP8266 Deauther
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           ./GMpro.ino --output-dir ./build
 
