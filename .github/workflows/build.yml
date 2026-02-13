@@ -19,28 +19,33 @@ jobs:
 
       - name: Install Libraries
         run: |
-          # 1. Install Library OLED & CLI (Otomatis masuk folder yang bener)
+          # 1. Install Library OLED (Otomatis masuk ke folder library default)
           arduino-cli lib install "Adafruit SSD1306"
           arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "Adafruit BusIO"
           arduino-cli lib install "SimpleCLI"
           
-          # 2. Setup path library untuk ArduinoJson manual (Biar gak Permission Denied)
-          USER_DIR=$(arduino-cli config dump | grep 'user:' | awk '{print $2}')
-          LIB_PATH="$USER_DIR/libraries"
+          # 2. Setup folder library tambahan di dalam workspace agar tidak 'Permission Denied'
+          # Kita gunakan folder di dalam workspace GitHub runner
+          LIB_PATH="$GITHUB_WORKSPACE/libraries"
           mkdir -p "$LIB_PATH"
           
-          # 3. Handle ArduinoJson (v5 wajib buat kodingan lu)
+          # 3. Ekstrak ArduinoJson v5 (Wajib versi 5 untuk kodingan GMpro)
           if [ -f "ArduinoJson-5.13.5.zip" ]; then
             unzip -o ArduinoJson-5.13.5.zip -d "$LIB_PATH"
           else
+            # Jika file zip tidak ada di repo, install versi 5 secara otomatis
             arduino-cli lib install "ArduinoJson"@5.13.5
           fi
 
       - name: Compile GMpro Firmware
         run: |
-          # Compile menggunakan FQBN generic ESP8266
+          # Beritahu compiler lokasi library tambahan kita
+          USER_LIB=$(arduino-cli config dump | grep 'user:' | awk '{print $2}')/libraries
+          
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
+          --libraries "$USER_LIB" \
+          --libraries "$GITHUB_WORKSPACE/libraries" \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
