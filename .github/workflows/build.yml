@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Fixed Library
+name: Build ESP32 GMpro
 
 on: [push, workflow_dispatch]
 
@@ -7,49 +7,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v2
-
-      - name: Install Spacehuhn Deauther SDK
-        run: |
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
-          arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
-
-      - name: Install Libraries
-        run: |
-          # 1. Install Library OLED (Otomatis masuk ke folder library default)
-          arduino-cli lib install "Adafruit SSD1306"
-          arduino-cli lib install "Adafruit GFX Library"
-          arduino-cli lib install "Adafruit BusIO"
-          arduino-cli lib install "SimpleCLI"
-          
-          # 2. Setup folder library tambahan di dalam workspace agar tidak 'Permission Denied'
-          # Kita gunakan folder di dalam workspace GitHub runner
-          LIB_PATH="$GITHUB_WORKSPACE/libraries"
-          mkdir -p "$LIB_PATH"
-          
-          # 3. Ekstrak ArduinoJson v5 (Wajib versi 5 untuk kodingan GMpro)
-          if [ -f "ArduinoJson-5.13.5.zip" ]; then
-            unzip -o ArduinoJson-5.13.5.zip -d "$LIB_PATH"
-          else
-            # Jika file zip tidak ada di repo, install versi 5 secara otomatis
-            arduino-cli lib install "ArduinoJson"@5.13.5
-          fi
-
-      - name: Compile GMpro Firmware
-        run: |
-          # Beritahu compiler lokasi library tambahan kita
-          USER_LIB=$(arduino-cli config dump | grep 'user:' | awk '{print $2}')/libraries
-          
-          arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
-          --libraries "$USER_LIB" \
-          --libraries "$GITHUB_WORKSPACE/libraries" \
-          ./GMpro.ino --output-dir ./build
-
-      - name: Upload Binary
-        uses: actions/upload-artifact@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          name: GMpro-Deauther-Binary
-          path: ./build/*.bin
+          python-version: '3.9'
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Run Build
+        run: pio run
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: GMpro-Firmware
+          path: .pio/build/esp32dev/firmware.bin
