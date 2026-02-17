@@ -1,4 +1,4 @@
-name: Build GMpro87 Firmware
+name: Build GMpro
 
 on: [push]
 
@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4 # Update ke v4
+        uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
@@ -19,15 +19,17 @@ jobs:
 
       - name: Install Libraries
         run: |
+          # Mengambil library yang dibutuhkan GMpro
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git /home/runner/Arduino/libraries/ESPAsyncWebServer
           git clone https://github.com/me-no-dev/AsyncTCP.git /home/runner/Arduino/libraries/AsyncTCP
 
       - name: Compile Firmware
+        # Nama file disesuaikan dengan yang ada di gambar repo kamu (GMpro.ino)
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir ./build GMpro87_Full.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir ./build GMpro.ino
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4 # Perbaikan utama di sini
+        uses: actions/upload-artifact@v4
         with:
-          name: GMpro87-Binaries
+          name: GMpro-Binaries
           path: ./build
