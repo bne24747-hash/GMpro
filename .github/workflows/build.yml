@@ -1,4 +1,4 @@
-name: Build ESP32
+name: Build ESP32 Bin
 
 on: [push]
 
@@ -8,11 +8,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+
       - name: Install PlatformIO
         run: pip install platformio
+
       - name: Run Build
         run: pio run
+
+      - name: Upload BIN file
+        uses: actions/upload-artifact@v3
+        with:
+          name: firmware-esp32-gmpro
+          path: .pio/build/esp32dev/firmware.bin
