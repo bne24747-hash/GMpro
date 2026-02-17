@@ -1,4 +1,4 @@
-name: Build GMpro
+name: Build ESP32
 
 on: [push]
 
@@ -6,30 +6,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
-
-      - name: Install ESP32 Platform
-        run: |
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-
-      - name: Install Libraries
-        run: |
-          # Mengambil library yang dibutuhkan GMpro
-          git clone https://github.com/me-no-dev/ESPAsyncWebServer.git /home/runner/Arduino/libraries/ESPAsyncWebServer
-          git clone https://github.com/me-no-dev/AsyncTCP.git /home/runner/Arduino/libraries/AsyncTCP
-
-      - name: Compile Firmware
-        # Nama file disesuaikan dengan yang ada di gambar repo kamu (GMpro.ino)
-        run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir ./build GMpro.ino
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          name: GMpro-Binaries
-          path: ./build
+          python-version: '3.9'
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Run Build
+        run: pio run
