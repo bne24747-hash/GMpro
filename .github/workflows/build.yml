@@ -7,10 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # Update ke v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Update ke v5
         with:
           python-version: '3.9'
 
@@ -21,7 +21,7 @@ jobs:
         run: pio run
 
       - name: Upload BIN file
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # INI YANG WAJIB DIGANTI KE V4
         with:
           name: firmware-esp32-gmpro
           path: .pio/build/esp32dev/firmware.bin
