@@ -19,27 +19,21 @@ jobs:
 
       - name: Install Required Libraries
         run: |
-          # Library untuk OLED dan GFX
           arduino-cli lib install "Adafruit SSD1306"
           arduino-cli lib install "Adafruit GFX Library"
           arduino-cli lib install "Adafruit BusIO"
-          
-          # Cek list library
-          arduino-cli lib list
 
       - name: Compile GMpro Firmware
         run: |
-          # Membuat folder output
           mkdir -p ./build
-          
-          # Compile menggunakan FQBN generic ESP8266 
-          # Karena kode ini standalone (bukan SDK Spacehuhn)
+          # FQBN diringkas supaya tidak error di bagian debug level (lvl)
+          # eesz=4M2M tetap dipakai untuk space filesystem yang lega
           arduino-cli compile \
-            --fqbn esp8266:esp8266:generic:xtal=80,vt=flash,exception=disabled,stacksmash=disabled,ssl=all,mmu=32,non32xfer=fast,eesz=4M2M,led=2,ip=lm2f,dbg=Disabled,lvl=None,wipe=none,baud=115200 \
+            --fqbn esp8266:esp8266:generic:eesz=4M2M \
             ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-OLED-64x48-Binary
+          name: GMpro-OLED-Fixed-Binary
           path: ./build/*.bin
