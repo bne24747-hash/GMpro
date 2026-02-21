@@ -17,33 +17,27 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Prepare Libraries
+      - name: Install Libraries
         run: |
-          # Buat folder library standard Arduino CLI
-          mkdir -p $HOME/Arduino/libraries
-          
-          # Install SimpleCLI (Dependencies standard)
+          # Install SimpleCLI (Wajib untuk Deauther SDK)
           arduino-cli lib install "SimpleCLI"
           
-          # Unzip ArduinoJson 5.13.5 yang ada di repo ke folder libraries
-          # Pastikan file zip ini ada di root repository lo
-          if [ -f "ArduinoJson-5.13.5.zip" ]; then
-            unzip -o ArduinoJson-5.13.5.zip -d $HOME/Arduino/libraries/
-          else
-            echo "Error: ArduinoJson-5.13.5.zip tidak ditemukan di root repo!"
-            exit 1
-          fi
+          # Install ArduinoJson versi 5.13.5 langsung dari server (Tanpa ZIP)
+          # Versi 5.x wajib karena versi 6.x ke atas bakal bikin error di SDK lama
+          arduino-cli lib install "ArduinoJson"@5.13.5
           
-          # Cek isi folder untuk memastikan struktur benar
-          ls -R $HOME/Arduino/libraries/
+          # Cek list library untuk memastikan semua terpasang
+          arduino-cli lib list
 
       - name: Compile GMpro Firmware
         run: |
-          # FQBN: deauther:esp8266:generic (Flash 4MB, FS 2MB)
-          # Kita tambahkan --library flag agar CLI pasti baca folder manual kita
+          # Membuat folder output
+          mkdir -p ./build
+          
+          # Compile menggunakan FQBN standard Deauther
+          # eesz=4M2M memberikan space 2MB untuk sistem file phishing
           arduino-cli compile \
             --fqbn deauther:esp8266:generic:eesz=4M2M \
-            --libraries $HOME/Arduino/libraries \
             ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
