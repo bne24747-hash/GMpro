@@ -1,4 +1,4 @@
-name: Compile GMpro Deauther Fixed Library
+name: Compile GMpro Standalone OLED Fixed
 
 on: [push, workflow_dispatch]
 
@@ -10,23 +10,21 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
+        uses: arduino/setup-arduino-cli@v2
 
-      - name: Install Spacehuhn Deauther SDK
+      - name: Install ESP8266 Core
         run: |
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
-          arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
+          arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
 
-      - name: Install Libraries
+      - name: Install Required Libraries
         run: |
-          # Install SimpleCLI (Wajib untuk Deauther SDK)
-          arduino-cli lib install "SimpleCLI"
+          # Library untuk OLED dan GFX
+          arduino-cli lib install "Adafruit SSD1306"
+          arduino-cli lib install "Adafruit GFX Library"
+          arduino-cli lib install "Adafruit BusIO"
           
-          # Install ArduinoJson versi 5.13.5 langsung dari server (Tanpa ZIP)
-          # Versi 5.x wajib karena versi 6.x ke atas bakal bikin error di SDK lama
-          arduino-cli lib install "ArduinoJson"@5.13.5
-          
-          # Cek list library untuk memastikan semua terpasang
+          # Cek list library
           arduino-cli lib list
 
       - name: Compile GMpro Firmware
@@ -34,14 +32,14 @@ jobs:
           # Membuat folder output
           mkdir -p ./build
           
-          # Compile menggunakan FQBN standard Deauther
-          # eesz=4M2M memberikan space 2MB untuk sistem file phishing
+          # Compile menggunakan FQBN generic ESP8266 
+          # Karena kode ini standalone (bukan SDK Spacehuhn)
           arduino-cli compile \
-            --fqbn deauther:esp8266:generic:eesz=4M2M \
+            --fqbn esp8266:esp8266:generic:xtal=80,vt=flash,exception=disabled,stacksmash=disabled,ssl=all,mmu=32,non32xfer=fast,eesz=4M2M,led=2,ip=lm2f,dbg=Disabled,lvl=None,wipe=none,baud=115200 \
             ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-v16-Binary
+          name: GMpro-OLED-64x48-Binary
           path: ./build/*.bin
