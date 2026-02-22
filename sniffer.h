@@ -1,3 +1,5 @@
+#ifndef SNIFFER_H
+#define SNIFFER_H
 
 char emptySSID[32];
 uint8_t channelIndex = 0;
@@ -272,3 +274,4 @@ void setupprobe(){
   os_timer_arm(&channelHop_timer, CHANNEL_HOP_INTERVAL_MS, 1);
 
 }
+
