@@ -17,26 +17,21 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
 
-      - name: Install Library from Repo Zip
+      - name: Install Libraries
         run: |
-          # Membuat folder library manual
-          mkdir -p /home/runner/Arduino/libraries
-          
-          # Mengambil library SimpleCLI
+          # Install SimpleCLI otomatis dari server
           arduino-cli lib install "SimpleCLI"
           
-          # Unzip ArduinoJson versi spesifik yang ada di repo kamu
-          # Pastikan nama file zip di repo kamu benar-benar "ArduinoJson-5.13.5.zip"
-          unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
-          
-          # List library untuk memastikan file ada
-          ls -R /home/runner/Arduino/libraries/
+          # Install ArduinoJson versi 5 (WAJIB v5 untuk code lu)
+          # Ini cara paling aman daripada unzip manual
+          arduino-cli lib install "ArduinoJson@5.13.5"
 
       - name: Compile GMpro Firmware
         run: |
-          # Menggunakan FQBN paling stabil untuk SDK Deauther
-          # Menghapus vtables dan mmu untuk menghindari 'invalid option'
-          arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
+          # Pastikan nama file .ino di repo lu adalah GMpro.ino
+          # Jika namanya masih WifiXv1.3.ino, ganti teks di bawah ini:
+          arduino-cli compile --fqbn deauther:esp8266:generic \
+          --libraries /home/runner/Arduino/libraries \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
