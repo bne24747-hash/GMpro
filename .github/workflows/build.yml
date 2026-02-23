@@ -1,4 +1,4 @@
-name: Compile GMpro Ultimate V5.1
+name: Compile GMpro Deauther Fixed Library
 
 on: [push, workflow_dispatch]
 
@@ -12,18 +12,35 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v1
 
-      - name: Install ESP8266 Core
+      - name: Install Spacehuhn Deauther SDK
         run: |
-          arduino-cli core update-index --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
-          arduino-cli core install esp8266:esp8266 --additional-urls http://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
+          arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
+
+      - name: Install Library from Repo Zip
+        run: |
+          # Membuat folder library manual
+          mkdir -p /home/runner/Arduino/libraries
+          
+          # Mengambil library SimpleCLI
+          arduino-cli lib install "SimpleCLI"
+          
+          # Unzip ArduinoJson versi spesifik yang ada di repo kamu
+          # Pastikan nama file zip di repo kamu benar-benar "ArduinoJson-5.13.5.zip"
+          unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
+          
+          # List library untuk memastikan file ada
+          ls -R /home/runner/Arduino/libraries/
 
       - name: Compile GMpro Firmware
         run: |
-          mkdir -p build
-          arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=4M2M,vt=flash ./GMpro.ino --output-dir ./build
+          # Menggunakan FQBN paling stabil untuk SDK Deauther
+          # Menghapus vtables dan mmu untuk menghindari 'invalid option'
+          arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
+          ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
-          name: GMpro-Ultimate-V5-Binary
-          path: build/*.bin
+          name: GMpro-Deauther-Binary
+          path: ./build/*.bin
