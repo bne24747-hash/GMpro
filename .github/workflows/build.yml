@@ -10,7 +10,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v2
+        uses: arduino/setup-arduino-cli@v1
 
       - name: Install ESP8266 Core
         run: |
@@ -19,14 +19,11 @@ jobs:
 
       - name: Compile GMpro Firmware
         run: |
-          # Bikin folder build dulu biar rapi
           mkdir -p build
-          # Compile dengan alokasi FS 2MB untuk LittleFS
-          arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=4M2M,vt=flash \
-          ./GMpro.ino --output-dir ./build
+          arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=4M2M,vt=flash ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4
         with:
           name: GMpro-Ultimate-V5-Binary
-          path: ./build/*.bin
+          path: build/*.bin
