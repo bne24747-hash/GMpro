@@ -19,13 +19,14 @@ jobs:
 
       - name: Compile GMpro Firmware
         run: |
-          # FQBN ini otomatis ngeset Flash 4MB dengan 2MB LittleFS (eesz=4M2M)
-          # vt=flash berarti vtables di flash (hemat RAM)
+          # Bikin folder build dulu biar rapi
+          mkdir -p build
+          # Compile dengan alokasi FS 2MB untuk LittleFS
           arduino-cli compile --fqbn esp8266:esp8266:generic:eesz=4M2M,vt=flash \
           ./GMpro.ino --output-dir ./build
 
       - name: Upload Binary
-        uses: upload-artifact@v4
+        uses: actions/upload-artifact@v4
         with:
           name: GMpro-Ultimate-V5-Binary
           path: ./build/*.bin
