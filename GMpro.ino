@@ -1,6 +1,10 @@
-// --- FIX BRUTAL ANTI-ERROR COMPILER ---
+// ==========================================
+// FIX UNTUK GITHUB ACTIONS (JANGAN DIHAPUS)
+// ==========================================
+#define ARDUINOJSON_USE_LONG_LONG 1
 #ifndef ARDUINOJSON_VERSION
-#include <ArduinoJson.h>
+  #include <ArduinoJson.h>
+  #define ARDUINOJSON_VERSION 6
 #endif
 
 #include <ESP8266WiFi.h>
@@ -14,7 +18,7 @@ extern "C" {
   #include "user_interface.h"
 }
 
-// FIX Pin D4 untuk Wemos D1 Mini
+// Map pin D4 agar dikenal compiler generic
 #ifndef D4
 #define D4 2
 #endif
@@ -31,7 +35,7 @@ AsyncWebServer server(80);
 DNSServer dnsServer;
 const int LED = D4;
 
-// --- UI ASLI GMPRO87 (UTUH 100% - TIDAK DISUNAT) ---
+// --- UI ASLI GMPRO87 (UTUH 100%) ---
 const char INDEX_HTML[] PROGMEM = R"rawtext(
 <!DOCTYPE html>
 <html>
@@ -54,18 +58,13 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
         .active-tab{background:orange;color:#000;font-weight:bold}
         .ctrl{display:flex; flex-wrap:wrap; justify-content:space-between; margin-bottom:10px}
         .cmd-box{width:48%; background:#111; padding:5px; border-radius:4px; border:1px solid #333; margin-bottom:5px; box-sizing:border-box}
-        .scan-box{width:100%; margin-bottom:10px; border:1px solid #00bcff}
         .cmd{width:100%; padding:12px 0; border:none; border-radius:4px; color:#fff; font-weight:bold; font-size:10px; text-transform:uppercase; cursor:pointer}
         .log-c{font-size:10px; margin-top:4px; font-family:monospace; font-weight:bold}
         @keyframes pulse-active { 0% { box-shadow: 0 0 2px #fff; } 50% { box-shadow: 0 0 15px #fff; opacity: 0.8; } 100% { box-shadow: 0 0 2px #fff; } }
         .btn-active { animation: pulse-active 0.6s infinite; border: 2px solid #fff !important; }
         .pass-box{background:#050; color:#0f0; border:2px dashed #0f0; padding:12px; margin:15px 0; text-align:left; border-radius:8px; font-family:monospace}
         .pass-text{font-size:18px; color:#fff; font-weight:bold; display:block; margin-top:5px}
-        table{width:100%; border-collapse:collapse; font-size:12px; margin-bottom:15px}
-        th,td{padding:10px 5px; border:1px solid #146dcc}
-        th{background:rgba(20,109,204,0.3); color:orange; text-transform:uppercase}
         .btn-ok{background:#FFC72C; color:#000; border:none; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:11px}
-        .set-box{background:#111; padding:10px; border:1px solid #444; margin-bottom:15px; text-align:left; font-size:12px; border-radius:5px}
         .inp{background:#222; color:orange; border:1px solid orange; padding:8px; border-radius:4px; width:94%; margin:5px 0}
         .hidden{display:none}
     </style>
@@ -79,7 +78,7 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
     </div>
     <div id="dash">
         <div class='ctrl'>
-            <div class="cmd-box scan-box"><button class='cmd' style='background:#00bcff' onclick="run('scan')">SCAN TARGET</button></div>
+            <div class="cmd-box" style="width:100%"><button class='cmd' style='background:#00bcff' onclick="run('scan')">SCAN TARGET</button></div>
             <div class="cmd-box">
                 <button id="btn_de" class='cmd' style='background:#0c8' onclick="run('deauth')">DEAUTH</button>
                 <div id="log_de" class="log-c" style="color:#0f0">READY</div>
