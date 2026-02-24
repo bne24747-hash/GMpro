@@ -1,13 +1,39 @@
-      - name: Install SDK & Libraries
+name: Compile GMpro Firmware
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install SDK and Libraries
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           
-          # PAKSA PAKAI ARDUINOJSON V6
+          # Paksa pakai ArduinoJson v6 biar gak berantem sama WebServer
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson@6.19.4"
           
-          # Install Async Manual (Tetap Clone biar Aman)
+          # Clone library Async langsung ke folder Arduino
           mkdir -p /home/runner/Arduino/libraries
           git clone https://github.com/me-no-dev/ESPAsyncTCP.git /home/runner/Arduino/libraries/ESPAsyncTCP
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git /home/runner/Arduino/libraries/ESPAsyncWebServer
+
+      - name: Compile GMpro
+        run: |
+          arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
+          --libraries /home/runner/Arduino/libraries \
+          ./GMpro.ino --output-dir ./build
+
+      - name: Upload Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: GMpro-Deauther-Binary
+          path: ./build/*.bin
