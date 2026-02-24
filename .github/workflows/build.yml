@@ -16,12 +16,8 @@ jobs:
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
-          
-          # Paksa pakai ArduinoJson v6 biar gak berantem sama WebServer
           arduino-cli lib install "SimpleCLI"
           arduino-cli lib install "ArduinoJson@6.19.4"
-          
-          # Clone library Async langsung ke folder Arduino
           mkdir -p /home/runner/Arduino/libraries
           git clone https://github.com/me-no-dev/ESPAsyncTCP.git /home/runner/Arduino/libraries/ESPAsyncTCP
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git /home/runner/Arduino/libraries/ESPAsyncWebServer
