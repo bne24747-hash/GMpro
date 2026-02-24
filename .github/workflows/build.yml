@@ -14,32 +14,21 @@ jobs:
 
       - name: Install SDK & Libraries
         run: |
-          # 1. Setup Index SDK Spacehuhn
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
-          
-          # 2. Install Core ESP8266 (Versi Deauther)
           arduino-cli core install deauther:esp8266 --additional-urls https://raw.githubusercontent.com/SpacehuhnTech/arduino/main/package_spacehuhn_index.json
           
-          # 3. INSTALL PELURU (Library yang bikin error tadi)
-          # Kita ambil langsung dari GitHub me-no-dev karena ini library paling stabil buat ESPAsync
+          # Install Library Standard (Biarkan ambil versi 6+)
           arduino-cli lib install "SimpleCLI"
-          arduino-cli lib install "ArduinoJson" # Versi terbaru biasanya aman, atau pake v5 kalau perlu
+          arduino-cli lib install "ArduinoJson"
           
-          # 4. Install Library Async (Manual git clone karena sering ga ada di manager)
+          # Install Async Manual (Wajib Clone)
           mkdir -p /home/runner/Arduino/libraries
           git clone https://github.com/me-no-dev/ESPAsyncTCP.git /home/runner/Arduino/libraries/ESPAsyncTCP
           git clone https://github.com/me-no-dev/ESPAsyncWebServer.git /home/runner/Arduino/libraries/ESPAsyncWebServer
 
-      - name: Install Local Library Zip
-        run: |
-          # Jaga-jaga kalau lo tetep mau pake zip dari repo lo
-          if [ -f ArduinoJson-5.13.5.zip ]; then
-            unzip -o ArduinoJson-5.13.5.zip -d /home/runner/Arduino/libraries/
-          fi
-
       - name: Compile GMpro Firmware
         run: |
-          # Compile pake FQBN pilihan lo, dengan library path yang bener
+          # Compile pake FQBN Generic dengan eesz 4M2M
           arduino-cli compile --fqbn deauther:esp8266:generic:eesz=4M2M \
           --libraries /home/runner/Arduino/libraries \
           ./GMpro.ino --output-dir ./build
